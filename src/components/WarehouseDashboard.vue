@@ -67,8 +67,8 @@
               <el-card shadow="hover" style="background: linear-gradient(135deg, #67C23A 0%, #85ce61 100%); color: white; border: none;">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                   <div>
-                    <p style="opacity: 0.9; font-size: 14px; margin-bottom: 8px;">已完成</p>
-                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.completedCount }}</p>
+                    <p style="opacity: 0.9; font-size: 14px; margin-bottom: 8px;">领用计划数量</p>
+                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.reminders }}</p>
                   </div>
                   <el-icon :size="48" style="opacity: 0.8;">
                     <CircleCheck />
@@ -81,7 +81,7 @@
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                   <div>
                     <p style="opacity: 0.9; font-size: 14px; margin-bottom: 8px;">待处理</p>
-                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.pendingCount }}</p>
+                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.reminders }}</p>
                   </div>
                   <el-icon :size="48" style="opacity: 0.8;">
                     <Clock />
@@ -116,9 +116,9 @@
                       :body-style="{ padding: '16px' }"
                     >
                       <div style="display: flex; align-items: center; gap: 16px;">
-                        <el-avatar :size="56" :src="person.photo" />
+                        <el-avatar :size="56" :src="person.photourl" />
                         <div style="flex: 1;">
-                          <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">{{ person.name }}</h3>
+                          <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">{{ person.adminname }}</h3>
                           <p style="margin: 0; color: #909399; font-size: 14px;">{{ person.contact }}</p>
                         </div>
                       </div>
@@ -165,7 +165,7 @@
                     >
                       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                          <span style="font-weight: 600; font-size: 15px;">{{ reminder.id }}</span>
+                          <span style="font-weight: 600; font-size: 15px;">{{ reminder.usePlanName }}</span>
                           <el-tag v-if="isNewReminder(reminder.id)" type="danger" size="small" effect="dark">NEW</el-tag>
                         </div>
                         <el-tag 
@@ -177,22 +177,17 @@
                         </el-tag>
                       </div>
                       <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
+                        <div style="display: flex; align-items: flex-start; gap: 8px;">
+                          <span style="color: #909399; white-space: nowrap;">领用时间:</span>
+                          <span style="font-weight: 500;">{{ reminder.usePlanStartTime }} ～ {{ reminder.usePlanEndTime }}</span>
+                        </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                           <span style="color: #909399;">领用人:</span>
-                          <span style="font-weight: 500;">{{ reminder.person }}</span>
+                          <span style="font-weight: 500;">{{ reminder.usePersonName }}</span>
                         </div>
                         <div style="display: flex; align-items: flex-start; gap: 8px;">
-                          <span style="color: #909399; white-space: nowrap;">RFID:</span>
-                          <div style="display: flex; flex-wrap: wrap; gap: 6px; flex: 1;">
-                            <el-tag 
-                              v-for="(rfid, index) in reminder.rfids" 
-                              :key="index"
-                              size="small"
-                              style="font-family: monospace;"
-                            >
-                              {{ rfid }}
-                            </el-tag>
-                          </div>
+                          <span style="color: #909399; white-space: nowrap;">领用工具:</span>
+                          <span style="font-weight: 500;">{{ reminder.tools }}</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                           <span style="color: #909399;">类型:</span>
@@ -244,10 +239,10 @@ const connectionStatus = ref({
 })
 
 // API配置
-const USE_WEBSOCKET = false // 设置为 true 启用 WebSocket，false 使用轮询
+const USE_WEBSOCKET = true // 设置为 true 启用 WebSocket，false 使用轮询
 const POLLING_INTERVAL = 5000 // 轮询间隔（毫秒）
-const API_BASE_URL = 'https://your-api-domain.com/api'
-const WS_URL = 'ws://your-api-domain.com/ws'
+const API_BASE_URL = 'http://localhost:8080/api/dashboard'
+const WS_URL = 'ws://localhost:8080/ws'
 
 const API_ENDPOINTS = {
   personnel: `${API_BASE_URL}/personnel`,
@@ -346,77 +341,83 @@ const fetchData = async () => {
 const connectWebSocket = () => {
   if (!USE_WEBSOCKET) return
 
+  console.log('正在连接 WebSocket:', WS_URL)
+  updateConnectionStatus('connecting')
+
   try {
     ws = new WebSocket(WS_URL)
     
     ws.onopen = () => {
-      console.log('WebSocket 连接成功')
+      console.log('✅ WebSocket 连接成功')
       updateConnectionStatus('connected')
       reconnectAttempts = 0
       
-      // 请求初始数据
-      ws.send(JSON.stringify({ type: 'subscribe', channels: ['personnel', 'reminders', 'statistics'] }))
+      // 发送订阅消息
+      const subscribeMsg = JSON.stringify({ 
+        type: 'subscribe', 
+        channels: ['personnel', 'reminders', 'statistics'] 
+      })
+      console.log('发送订阅消息:', subscribeMsg)
+      ws.send(subscribeMsg)
     }
     
     ws.onmessage = (event) => {
       try {
+        console.log('📨 收到服务器消息:', event.data)
         const data = JSON.parse(event.data)
         
-        switch(data.type) {
-          case 'personnel':
-            personnel.value = data.payload
-            break
-          case 'reminders':
+        if (data.type === 'update') {
+          if (data.personnel) personnel.value = data.personnel
+          if (data.reminders) {
             if (reminders.value.length > 0) {
-              detectNewReminders(data.payload)
+              detectNewReminders(data.reminders)
             }
-            reminders.value = data.payload
-            break
-          case 'statistics':
-            statistics.value = data.payload
-            break
-          case 'update':
-            // 全量更新
-            if (data.personnel) personnel.value = data.personnel
-            if (data.reminders) {
-              if (reminders.value.length > 0) {
-                detectNewReminders(data.reminders)
-              }
-              reminders.value = data.reminders
-            }
-            if (data.statistics) statistics.value = data.statistics
-            break
+            reminders.value = data.reminders
+          }
+          if (data.statistics) statistics.value = data.statistics
         }
         
         updateLastUpdateTime()
         loading.value = false
       } catch (err) {
-        console.error('解析 WebSocket 消息失败:', err)
+        console.error('❌ 解析 WebSocket 消息失败:', err)
       }
     }
     
     ws.onerror = (error) => {
-      console.error('WebSocket 错误:', error)
+      console.error('❌ WebSocket 错误:', error)
+      console.error('WebSocket readyState:', ws?.readyState)
       updateConnectionStatus('error')
     }
     
-    ws.onclose = () => {
-      console.log('WebSocket 连接关闭')
+    ws.onclose = (event) => {
+      console.log('❌ WebSocket 连接关闭')
+      console.log('关闭代码:', event.code)
+      console.log('关闭原因:', event.reason)
+      console.log('是否正常关闭:', event.wasClean)
       updateConnectionStatus('disconnected')
       
       // 尝试重连
       if (autoRefresh.value && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttempts++
+        const delay = 3000 * reconnectAttempts
+        console.log(`⏳ 将在 ${delay}ms 后尝试重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
         reconnectTimer = setTimeout(() => {
-          console.log(`尝试重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
           connectWebSocket()
-        }, 3000 * reconnectAttempts)
+        }, delay)
+      } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.log('❌ 达到最大重连次数，停止重连')
+        ElMessage.error('WebSocket 连接失败，已切换到轮询模式')
+        // 切换到轮询模式
+        USE_WEBSOCKET = false
+        startPolling()
       }
     }
   } catch (err) {
-    console.error('WebSocket 连接失败:', err)
+    console.error('❌ 创建 WebSocket 连接失败:', err)
     updateConnectionStatus('error')
   }
+
 }
 
 // 启动轮询
