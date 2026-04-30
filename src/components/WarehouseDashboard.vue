@@ -1,205 +1,186 @@
 <template>
-  <div style="min-height: 100vh; background: linear-gradient(135deg, #f5f7fa 0%, #e4e7ed 100%); padding: 24px;">
-    <el-container style="max-width: 1400px; margin: 0 auto;">
+  <div class="dashboard-page">
+    <el-container class="dashboard-container">
       <el-main>
-        <!-- 页面标题和控制栏 -->
-        <div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+        <div class="dashboard-header">
           <div>
-            <h1 style="font-size: 28px; font-weight: bold; color: #303133; margin-bottom: 8px;">库房设备管理系统</h1>
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <p style="color: #909399; margin: 0;">实时监控设备领用状态与人员信息</p>
+            <h1>库房设备管理系统</h1>
+            <div class="header-subtitle">
+              <p>实时监控工器具出入库状态</p>
               <el-tag :type="connectionStatus.type" size="small" effect="light">
-                <el-icon style="margin-right: 4px;"><component :is="connectionStatus.icon" /></el-icon>
+                <el-icon class="status-icon">
+                  <component :is="connectionStatus.icon" />
+                </el-icon>
                 {{ connectionStatus.text }}
               </el-tag>
             </div>
           </div>
-          <div style="display: flex; gap: 12px; align-items: center;">
-            <el-switch
-              v-model="autoRefresh"
-              active-text="自动刷新"
-              @change="toggleAutoRefresh"
-            />
-            <el-button 
-              type="primary" 
-              :icon="Refresh" 
-              @click="manualRefresh"
-              :loading="loading"
-              circle
-              title="手动刷新"
-            />
+          <div class="toolbar">
+            <div class="toolbar-row">
+              <el-switch
+                v-model="autoRefresh"
+                active-text="自动刷新"
+                @change="toggleAutoRefresh"
+              />
+              <el-button
+                type="primary"
+                :icon="Refresh"
+                :loading="loading"
+                circle
+                title="手动刷新"
+                @click="manualRefresh"
+              />
+            </div>
+            <el-button
+              class="sync-button"
+              type="success"
+              :icon="Refresh"
+              :loading="syncLoading"
+              @click="syncToolInfo"
+            >
+              同步工具信息
+            </el-button>
           </div>
         </div>
 
-        <!-- 最后更新时间 -->
-        <div v-if="lastUpdateTime" style="margin-bottom: 16px; text-align: right;">
+        <div v-if="lastUpdateTime" class="last-update">
           <el-text type="info" size="small">
             <el-icon><Clock /></el-icon>
             最后更新: {{ lastUpdateTime }}
           </el-text>
         </div>
 
-        <!-- 加载状态 -->
-        <div v-if="loading && !personnel.length" style="text-align: center; padding: 100px 0;">
-          <el-icon :size="50" class="is-loading" style="color: #409EFF;">
+        <div v-if="loading && !toolRecords.length" class="loading-panel">
+          <el-icon :size="50" class="is-loading">
             <Loading />
           </el-icon>
-          <p style="margin-top: 16px; color: #909399;">加载中...</p>
+          <p>加载中...</p>
         </div>
 
         <template v-else>
-          <!-- 统计卡片 -->
-          <el-row :gutter="16" style="margin-bottom: 24px;">
-            <el-col :span="8">
-              <el-card shadow="hover" style="background: linear-gradient(135deg, #409EFF 0%, #66b1ff 100%); color: white; border: none;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
+          <el-row :gutter="16" class="stats-row">
+            <el-col :xs="24" :sm="8">
+              <el-card shadow="hover" class="stat-card stat-blue">
+                <div class="stat-content">
                   <div>
-                    <p style="opacity: 0.9; font-size: 14px; margin-bottom: 8px;">总人数</p>
-                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.totalPersonnel }}</p>
+                    <p>工器具总数</p>
+                    <strong>{{ statistics.totalTools || 0 }}</strong>
                   </div>
-                  <el-icon :size="48" style="opacity: 0.8;">
-                    <User />
-                  </el-icon>
+                  <el-icon :size="48"><Box /></el-icon>
                 </div>
               </el-card>
             </el-col>
-            <el-col :span="8">
-              <el-card shadow="hover" style="background: linear-gradient(135deg, #67C23A 0%, #85ce61 100%); color: white; border: none;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
+            <el-col :xs="24" :sm="8">
+              <el-card shadow="hover" class="stat-card stat-green">
+                <div class="stat-content">
                   <div>
-                    <p style="opacity: 0.9; font-size: 14px; margin-bottom: 8px;">领用计划数量</p>
-                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.reminders }}</p>
+                    <p>出入库记录</p>
+                    <strong>{{ statistics.toolRecords || toolRecords.length }}</strong>
                   </div>
-                  <el-icon :size="48" style="opacity: 0.8;">
-                    <CircleCheck />
-                  </el-icon>
+                  <el-icon :size="48"><Tickets /></el-icon>
                 </div>
               </el-card>
             </el-col>
-            <el-col :span="8">
-              <el-card shadow="hover" style="background: linear-gradient(135deg, #E6A23C 0%, #ebb563 100%); color: white; border: none;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
+            <el-col :xs="24" :sm="8">
+              <el-card shadow="hover" class="stat-card stat-orange">
+                <div class="stat-content">
                   <div>
-                    <p style="opacity: 0.9; font-size: 14px; margin-bottom: 8px;">待处理</p>
-                    <p style="font-size: 32px; font-weight: bold; margin: 0;">{{ statistics.reminders }}</p>
+                    <p>未归还数量</p>
+                    <strong>{{ statistics.unreturnedCount || 0 }}</strong>
                   </div>
-                  <el-icon :size="48" style="opacity: 0.8;">
-                    <Clock />
-                  </el-icon>
+                  <el-icon :size="48"><Clock /></el-icon>
                 </div>
               </el-card>
             </el-col>
           </el-row>
 
-          <!-- 人员信息和领用提醒 -->
-          <el-row :gutter="24">
-            <!-- 人员信息 -->
-            <el-col :span="12">
-              <el-card shadow="hover">
-                <template #header>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <el-icon :size="20" color="#409EFF">
-                      <User />
-                    </el-icon>
-                    <span style="font-size: 18px; font-weight: 600;">人员信息</span>
-                    <el-tag size="small" type="info">{{ personnel.length }}人</el-tag>
-                  </div>
-                </template>
-                <div style="max-height: 440px; overflow-y: auto;">
-                  <el-empty v-if="personnel.length === 0" description="暂无人员数据" />
-                  <div v-else style="display: flex; flex-direction: column; gap: 12px;">
-                    <el-card 
-                      v-for="person in personnel" 
-                      :key="person.id"
-                      shadow="hover"
-                      style="background-color: #f5f7fa;"
-                      :body-style="{ padding: '16px' }"
-                    >
-                      <div style="display: flex; align-items: center; gap: 16px;">
-                        <el-avatar :size="56" :src="person.photourl" />
-                        <div style="flex: 1;">
-                          <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">{{ person.adminname }}</h3>
-                          <p style="margin: 0; color: #909399; font-size: 14px;">{{ person.contact }}</p>
-                        </div>
-                      </div>
-                    </el-card>
-                  </div>
-                </div>
-              </el-card>
-            </el-col>
-
-            <!-- 领用提醒 -->
-            <el-col :span="12">
-              <el-card shadow="hover">
-                <template #header>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <el-icon :size="20" color="#67C23A">
-                      <Box />
-                    </el-icon>
-                    <span style="font-size: 18px; font-weight: 600;">领用提醒</span>
-                    <el-tag size="small" type="info">{{ reminders.length }}条</el-tag>
-                    <el-badge 
-                      v-if="newRemindersCount > 0" 
-                      :value="newRemindersCount" 
-                      class="item"
+          <div class="dashboard-content">
+            <el-card shadow="hover" class="records-card">
+              <template #header>
+                <div class="card-header">
+                  <div class="card-title">
+                    <el-icon :size="20" color="#409EFF"><Box /></el-icon>
+                    <span>工器具出入库记录</span>
+                    <el-tag size="small" type="info">{{ toolRecords.length }}条</el-tag>
+                    <el-badge
+                      v-if="newRecordsCount > 0"
+                      :value="newRecordsCount"
                       type="danger"
                     >
                       <el-text type="danger" size="small">新增</el-text>
                     </el-badge>
                   </div>
-                </template>
-                <div style="max-height: 440px; overflow-y: auto;">
-                  <el-empty v-if="reminders.length === 0" description="暂无领用记录" />
-                  <div v-else style="display: flex; flex-direction: column;">
-                    <div 
-                      v-for="reminder in reminders" 
-                      :key="reminder.id"
-                      :style="{
-                        padding: '16px',
-                        borderBottom: '1px solid #EBEEF5',
-                        transition: 'all 0.3s',
-                        backgroundColor: isNewReminder(reminder.id) ? '#fef0f0' : 'transparent'
-                      }"
-                      @mouseenter="$event.currentTarget.style.backgroundColor = '#f5f7fa'"
-                      @mouseleave="$event.currentTarget.style.backgroundColor = isNewReminder(reminder.id) ? '#fef0f0' : 'transparent'"
-                    >
-                      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                          <span style="font-weight: 600; font-size: 15px;">{{ reminder.usePlanName }}</span>
-                          <el-tag v-if="isNewReminder(reminder.id)" type="danger" size="small" effect="dark">NEW</el-tag>
-                        </div>
-                        <el-tag 
-                          :type="getStatusConfig(reminder.status).type" 
-                          size="small"
-                          effect="plain"
-                        >
-                          {{ getStatusConfig(reminder.status).label }}
-                        </el-tag>
-                      </div>
-                      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
-                        <div style="display: flex; align-items: flex-start; gap: 8px;">
-                          <span style="color: #909399; white-space: nowrap;">领用时间:</span>
-                          <span style="font-weight: 500;">{{ reminder.usePlanStartTime }} ～ {{ reminder.usePlanEndTime }}</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                          <span style="color: #909399;">领用人:</span>
-                          <span style="font-weight: 500;">{{ reminder.usePersonName }}</span>
-                        </div>
-                        <div style="display: flex; align-items: flex-start; gap: 8px;">
-                          <span style="color: #909399; white-space: nowrap;">领用工具:</span>
-                          <span style="font-weight: 500;">{{ reminder.tools }}</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                          <span style="color: #909399;">类型:</span>
-                          <el-tag type="primary" size="small" effect="plain">{{ reminder.type }}</el-tag>
-                        </div>
-                      </div>
-                    </div>
+                </div>
+              </template>
+
+              <el-table
+                :data="toolRecords"
+                :height="460"
+                stripe
+                border
+                empty-text="暂无出入库记录"
+                :row-class-name="getRowClassName"
+              >
+                <el-table-column prop="rfid" label="标签号" min-width="190" fixed="left" show-overflow-tooltip />
+                <el-table-column prop="toolName" label="工具名称" min-width="220" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    {{ row.toolName || row.rfid || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="usePersonName" label="领用人" min-width="120" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    {{ row.usePersonName || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="useTime" label="领用时间" min-width="170" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    {{ row.useTime || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="returnPersonName" label="归还人" min-width="120" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    {{ row.returnPersonName || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="returnTime" label="归还时间" min-width="170" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <el-tag v-if="!row.returnTime" type="warning" size="small" effect="plain">未归还</el-tag>
+                    <span v-else>{{ row.returnTime }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-card shadow="hover" class="active-tools-card">
+              <template #header>
+                <div class="card-header">
+                  <div class="card-title">
+                    <el-icon :size="20" color="#67C23A"><Box /></el-icon>
+                    <span>当前识别工具</span>
+                    <el-tag size="small" type="success">{{ activeRedisTools.length }}条</el-tag>
                   </div>
                 </div>
-              </el-card>
-            </el-col>
-          </el-row>
+              </template>
+
+              <div v-if="activeToolsLoading && !activeRedisTools.length" class="active-tools-loading">
+                <el-icon class="is-loading"><Loading /></el-icon>
+                <span>加载中...</span>
+              </div>
+              <el-empty v-else-if="!activeRedisTools.length" description="暂无工具信息" :image-size="90" />
+              <el-scrollbar v-else height="460px">
+                <div class="active-tool-list">
+                  <div
+                    v-for="tool in activeRedisTools"
+                    :key="tool.rfid"
+                    class="active-tool-item"
+                  >
+                    <div class="active-tool-name">{{ tool.toolName || tool.rfid || '-' }}</div>
+                    <div class="active-tool-rfid">{{ tool.rfid || '-' }}</div>
+                  </div>
+                </div>
+              </el-scrollbar>
+            </el-card>
+          </div>
         </template>
       </el-main>
     </el-container>
@@ -207,55 +188,65 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import {
+  Box,
+  CircleCheck,
+  CircleClose,
+  Clock,
+  Loading,
+  Refresh,
+  Tickets
+} from '@element-plus/icons-vue'
 
-const personnel = ref([])
-const reminders = ref([])
+const toolRecords = ref([])
+const activeRedisTools = ref([])
 const statistics = ref({
-  totalPersonnel: 0,
-  completedCount: 0,
-  pendingCount: 0
+  totalTools: 0,
+  toolRecords: 0,
+  unreturnedCount: 0
 })
 const loading = ref(true)
+const activeToolsLoading = ref(false)
+const syncLoading = ref(false)
 const autoRefresh = ref(true)
 const lastUpdateTime = ref('')
-const newReminderIds = ref(new Set())
-const newRemindersCount = ref(0)
+const newRecordIds = ref(new Set())
+const newRecordsCount = ref(0)
 
-// WebSocket 连接
 let ws = null
 let pollingTimer = null
+let activeToolsTimer = null
 let reconnectTimer = null
 let reconnectAttempts = 0
+
 const MAX_RECONNECT_ATTEMPTS = 5
-
-// 连接状态
-const connectionStatus = ref({
-  text: '连接中',
-  type: 'info',
-  icon: 'Loading'
-})
-
-// API配置
-const USE_WEBSOCKET = true // 设置为 true 启用 WebSocket，false 使用轮询
-const POLLING_INTERVAL = 5000 // 轮询间隔（毫秒）
+const DEFAULT_USE_WEBSOCKET = true
+let useWebSocket = DEFAULT_USE_WEBSOCKET
+const POLLING_INTERVAL = 5000
 const API_BASE_URL = 'http://localhost:8080/api/dashboard'
 const WS_URL = 'ws://localhost:8080/ws'
 
 const API_ENDPOINTS = {
-  personnel: `${API_BASE_URL}/personnel`,
-  reminders: `${API_BASE_URL}/reminders`,
-  statistics: `${API_BASE_URL}/statistics`
+  toolRecords: `${API_BASE_URL}/tool-records`,
+  statistics: `${API_BASE_URL}/statistics`,
+  activeTools: `${API_BASE_URL}/active-tools`,
+  syncToolInfo: `${API_BASE_URL}/syncToolInfo`
 }
 
-// 检查是否是新提醒
-const isNewReminder = (id) => {
-  return newReminderIds.value.has(id)
+const connectionStatus = ref({
+  text: '连接中',
+  type: 'info',
+  icon: Loading
+})
+
+const isNewRecord = (id) => newRecordIds.value.has(id)
+
+const getRowClassName = ({ row }) => {
+  return isNewRecord(row.id) ? 'new-record-row' : ''
 }
 
-// 更新最后更新时间
 const updateLastUpdateTime = () => {
   const now = new Date()
   lastUpdateTime.value = now.toLocaleString('zh-CN', {
@@ -268,68 +259,101 @@ const updateLastUpdateTime = () => {
   })
 }
 
-// 检测新增的提醒
-const detectNewReminders = (newReminders) => {
-  const oldIds = new Set(reminders.value.map(r => r.id))
+const normalizeStatistics = (data = {}) => ({
+  totalTools: data.totalTools || 0,
+  toolRecords: data.toolRecords || 0,
+  unreturnedCount: data.unreturnedCount || 0
+})
+
+const detectNewRecords = (newRecords) => {
+  const oldIds = new Set(toolRecords.value.map(record => record.id))
   const newIds = new Set()
-  
-  newReminders.forEach(reminder => {
-    if (!oldIds.has(reminder.id)) {
-      newIds.add(reminder.id)
+
+  newRecords.forEach(record => {
+    if (record.id && !oldIds.has(record.id)) {
+      newIds.add(record.id)
     }
   })
-  
+
   if (newIds.size > 0) {
-    newReminderIds.value = newIds
-    newRemindersCount.value = newIds.size
-    
-    // 显示通知
+    newRecordIds.value = newIds
+    newRecordsCount.value = newIds.size
+
     ElMessage.success({
-      message: `检测到 ${newIds.size} 条新的领用提醒`,
+      message: `检测到 ${newIds.size} 条新的出入库记录`,
       duration: 3000
     })
-    
-    // 3秒后清除新标记
+
     setTimeout(() => {
-      newReminderIds.value.clear()
-      newRemindersCount.value = 0
+      newRecordIds.value = new Set()
+      newRecordsCount.value = 0
     }, 3000)
   }
 }
 
-// HTTP 轮询获取数据
+const applyRecords = (newRecords) => {
+  const records = Array.isArray(newRecords) ? newRecords : []
+  if (toolRecords.value.length > 0) {
+    detectNewRecords(records)
+  }
+  toolRecords.value = records
+}
+
+const applyActiveTools = (newTools) => {
+  activeRedisTools.value = Array.isArray(newTools) ? newTools : []
+}
+
+const fetchActiveTools = async () => {
+  activeToolsLoading.value = true
+  try {
+    const response = await fetch(API_ENDPOINTS.activeTools)
+    if (!response.ok) {
+      throw new Error('获取当前识别工具失败')
+    }
+
+    const newTools = await response.json()
+    applyActiveTools(newTools)
+    console.info('[Dashboard] Redis当前工具刷新完成', {
+      count: activeRedisTools.value.length
+    })
+  } catch (err) {
+    console.error('[Dashboard] Redis当前工具刷新失败:', err)
+  } finally {
+    activeToolsLoading.value = false
+  }
+}
+
 const fetchData = async () => {
   try {
-    const [personnelRes, remindersRes, statisticsRes] = await Promise.all([
-      fetch(API_ENDPOINTS.personnel),
-      fetch(API_ENDPOINTS.reminders),
+    console.info('[Dashboard] 开始请求工器具出入库数据', {
+      recordsUrl: API_ENDPOINTS.toolRecords,
+      statisticsUrl: API_ENDPOINTS.statistics
+    })
+
+    const [recordsRes, statisticsRes] = await Promise.all([
+      fetch(API_ENDPOINTS.toolRecords),
       fetch(API_ENDPOINTS.statistics)
     ])
 
-    if (!personnelRes.ok || !remindersRes.ok || !statisticsRes.ok) {
+    if (!recordsRes.ok || !statisticsRes.ok) {
       throw new Error('获取数据失败')
     }
 
-    const newPersonnel = await personnelRes.json()
-    const newReminders = await remindersRes.json()
+    const newRecords = await recordsRes.json()
     const newStatistics = await statisticsRes.json()
 
-    // 检测新提醒
-    if (reminders.value.length > 0) {
-      detectNewReminders(newReminders)
-    }
-
-    personnel.value = newPersonnel
-    reminders.value = newReminders
-    statistics.value = newStatistics
-    
+    applyRecords(newRecords)
+    statistics.value = normalizeStatistics(newStatistics)
+    console.info('[Dashboard] 工器具出入库数据请求完成', {
+      recordCount: Array.isArray(newRecords) ? newRecords.length : 0,
+      statistics: statistics.value
+    })
     updateLastUpdateTime()
     updateConnectionStatus('connected')
   } catch (err) {
-    console.error('API请求失败:', err)
+    console.error('[Dashboard] 工器具出入库数据请求失败:', err)
     updateConnectionStatus('error')
-    // 使用模拟数据
-    if (personnel.value.length === 0) {
+    if (toolRecords.value.length === 0) {
       loadMockData()
     }
   } finally {
@@ -337,103 +361,96 @@ const fetchData = async () => {
   }
 }
 
-// WebSocket 连接
 const connectWebSocket = () => {
-  if (!USE_WEBSOCKET) return
+  if (!useWebSocket) return
 
-  console.log('正在连接 WebSocket:', WS_URL)
   updateConnectionStatus('connecting')
+  console.info('[Dashboard] 开始连接WebSocket', { url: WS_URL })
 
   try {
     ws = new WebSocket(WS_URL)
-    
+
     ws.onopen = () => {
-      console.log('✅ WebSocket 连接成功')
       updateConnectionStatus('connected')
       reconnectAttempts = 0
-      
-      // 发送订阅消息
-      const subscribeMsg = JSON.stringify({ 
-        type: 'subscribe', 
-        channels: ['personnel', 'reminders', 'statistics'] 
+      console.info('[Dashboard] WebSocket连接成功，发送订阅消息', {
+        channels: ['toolRecords', 'statistics']
       })
-      console.log('发送订阅消息:', subscribeMsg)
-      ws.send(subscribeMsg)
+      ws.send(JSON.stringify({
+        type: 'subscribe',
+        channels: ['toolRecords', 'statistics']
+      }))
     }
-    
+
     ws.onmessage = (event) => {
       try {
-        console.log('📨 收到服务器消息:', event.data)
         const data = JSON.parse(event.data)
-        
+
         if (data.type === 'update') {
-          if (data.personnel) personnel.value = data.personnel
-          if (data.reminders) {
-            if (reminders.value.length > 0) {
-              detectNewReminders(data.reminders)
-            }
-            reminders.value = data.reminders
+          if (data.toolRecords) {
+            applyRecords(data.toolRecords)
           }
-          if (data.statistics) statistics.value = data.statistics
+          if (data.statistics) {
+            statistics.value = normalizeStatistics(data.statistics)
+          }
+          console.info('[Dashboard] WebSocket收到Dashboard更新', {
+            recordCount: Array.isArray(data.toolRecords) ? data.toolRecords.length : toolRecords.value.length,
+            statistics: statistics.value
+          })
         }
-        
+
         updateLastUpdateTime()
         loading.value = false
       } catch (err) {
-        console.error('❌ 解析 WebSocket 消息失败:', err)
+        console.error('[Dashboard] 解析WebSocket消息失败:', err, event.data)
       }
     }
-    
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket 错误:', error)
-      console.error('WebSocket readyState:', ws?.readyState)
+
+    ws.onerror = (event) => {
+      console.error('[Dashboard] WebSocket连接错误:', event)
       updateConnectionStatus('error')
     }
-    
-    ws.onclose = (event) => {
-      console.log('❌ WebSocket 连接关闭')
-      console.log('关闭代码:', event.code)
-      console.log('关闭原因:', event.reason)
-      console.log('是否正常关闭:', event.wasClean)
+
+    ws.onclose = () => {
       updateConnectionStatus('disconnected')
-      
-      // 尝试重连
+      console.warn('[Dashboard] WebSocket连接关闭', {
+        reconnectAttempts,
+        autoRefresh: autoRefresh.value
+      })
+
       if (autoRefresh.value && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttempts++
-        const delay = 3000 * reconnectAttempts
-        console.log(`⏳ 将在 ${delay}ms 后尝试重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
         reconnectTimer = setTimeout(() => {
           connectWebSocket()
-        }, delay)
+        }, 3000 * reconnectAttempts)
       } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.log('❌ 达到最大重连次数，停止重连')
         ElMessage.error('WebSocket 连接失败，已切换到轮询模式')
-        // 切换到轮询模式
-        USE_WEBSOCKET = false
+        useWebSocket = false
         startPolling()
       }
     }
   } catch (err) {
-    console.error('❌ 创建 WebSocket 连接失败:', err)
+    console.error('[Dashboard] 创建WebSocket连接失败:', err)
     updateConnectionStatus('error')
   }
-
 }
 
-// 启动轮询
 const startPolling = () => {
-  if (USE_WEBSOCKET) return
-  
+  if (useWebSocket) return
+  console.info('[Dashboard] 启动轮询刷新工器具出入库数据', {
+    interval: POLLING_INTERVAL
+  })
   fetchData()
-  
   if (autoRefresh.value) {
-    pollingTimer = setInterval(() => {
-      fetchData()
-    }, POLLING_INTERVAL)
+    pollingTimer = setInterval(fetchData, POLLING_INTERVAL)
   }
 }
 
-// 停止轮询
+const startActiveToolsPolling = () => {
+  fetchActiveTools()
+  activeToolsTimer = setInterval(fetchActiveTools, POLLING_INTERVAL)
+}
+
 const stopPolling = () => {
   if (pollingTimer) {
     clearInterval(pollingTimer)
@@ -441,41 +458,45 @@ const stopPolling = () => {
   }
 }
 
-// 更新连接状态
+const stopActiveToolsPolling = () => {
+  if (activeToolsTimer) {
+    clearInterval(activeToolsTimer)
+    activeToolsTimer = null
+  }
+}
+
 const updateConnectionStatus = (status) => {
   const statusMap = {
-    connected: { text: '已连接', type: 'success', icon: 'CircleCheck' },
-    disconnected: { text: '已断开', type: 'warning', icon: 'CircleClose' },
-    error: { text: '连接错误', type: 'danger', icon: 'CircleClose' },
-    connecting: { text: '连接中', type: 'info', icon: 'Loading' }
+    connected: { text: '已连接', type: 'success', icon: CircleCheck },
+    disconnected: { text: '已断开', type: 'warning', icon: CircleClose },
+    error: { text: '连接错误', type: 'danger', icon: CircleClose },
+    connecting: { text: '连接中', type: 'info', icon: Loading }
   }
   connectionStatus.value = statusMap[status] || statusMap.connecting
 }
 
-// 切换自动刷新
 const toggleAutoRefresh = (value) => {
-  if (USE_WEBSOCKET) {
+  if (useWebSocket) {
     if (value) {
       connectWebSocket()
-    } else {
-      if (ws) {
-        ws.close()
-        ws = null
-      }
+    } else if (ws) {
+      ws.close()
+      ws = null
     }
+  } else if (value) {
+    startPolling()
   } else {
-    if (value) {
-      startPolling()
-    } else {
-      stopPolling()
-    }
+    stopPolling()
   }
 }
 
-// 手动刷新
 const manualRefresh = () => {
   loading.value = true
-  if (USE_WEBSOCKET && ws && ws.readyState === WebSocket.OPEN) {
+  console.info('[Dashboard] 手动刷新工器具出入库数据', {
+    useWebSocket,
+    wsReadyState: ws ? ws.readyState : null
+  })
+  if (useWebSocket && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'refresh' }))
     setTimeout(() => {
       loading.value = false
@@ -483,57 +504,78 @@ const manualRefresh = () => {
   } else {
     fetchData()
   }
+  fetchActiveTools()
 }
 
-// 模拟数据
-const loadMockData = () => {
-  personnel.value = [
-    { id: 1, name: '张三', contact: '13800138001', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Zhang' },
-    { id: 2, name: '李四', contact: '13800138002', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Li' },
-    { id: 3, name: '王五', contact: '13800138003', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Wang' },
-    { id: 4, name: '赵六', contact: '13800138004', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Zhao' },
-    { id: 5, name: '孙七', contact: '13800138005', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sun' },
-    { id: 6, name: '周八', contact: '13800138006', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Zhou' }
-  ]
+const syncToolInfo = async () => {
+  syncLoading.value = true
+  console.info('[Dashboard] 开始同步工具信息', {
+    url: API_ENDPOINTS.syncToolInfo
+  })
 
-  reminders.value = [
-    { id: 'RC2024001', person: '张三', rfids: ['RFID-8825-3391', 'RFID-7234-5521', 'RFID-9182-4463'], status: 'pending', type: '临时领用' },
-    { id: 'RC2024002', person: '李四', rfids: ['RFID-7723-4482', 'RFID-3345-2219'], status: 'completed', type: '长期领用' },
-    { id: 'RC2024003', person: '王五', rfids: ['RFID-5516-2278'], status: 'overdue', type: '临时领用' },
-    { id: 'RC2024004', person: '张三', rfids: ['RFID-9934-1156', 'RFID-4421-8837', 'RFID-6653-1192', 'RFID-2298-3304'], status: 'pending', type: '长期领用' },
-    { id: 'RC2024005', person: '赵六', rfids: ['RFID-1122-3344', 'RFID-5566-7788'], status: 'completed', type: '临时领用' },
-    { id: 'RC2024006', person: '孙七', rfids: ['RFID-9988-7766'], status: 'pending', type: '长期领用' }
-  ]
+  try {
+    const response = await fetch(API_ENDPOINTS.syncToolInfo)
+    const message = await response.text()
 
-  statistics.value = {
-    totalPersonnel: 6,
-    completedCount: 2,
-    pendingCount: 3
+    if (!response.ok) {
+      throw new Error(message || '同步工具信息失败')
+    }
+
+    ElMessage.success(message || '同步工具信息完成')
+    console.info('[Dashboard] 同步工具信息完成，准备刷新页面', { message })
+    window.location.reload()
+  } catch (err) {
+    console.error('[Dashboard] 同步工具信息失败:', err)
+    ElMessage.error(err.message || '同步工具信息失败')
+  } finally {
+    syncLoading.value = false
   }
-  
+}
+
+const loadMockData = () => {
+  console.warn('[Dashboard] 接口无可用数据，加载本地示例数据用于页面兜底显示')
+  toolRecords.value = [
+    {
+      id: 1,
+      rfid: 'E2000017221101441890B3D4',
+      toolName: '绝缘手套',
+      usePersonName: '杨海男',
+      useTime: '2026-04-26 09:00:00',
+      returnPersonName: '',
+      returnTime: '',
+      status: 'BORROWED'
+    },
+    {
+      id: 2,
+      rfid: 'E2000017221101441890B3D5',
+      toolName: '验电器',
+      usePersonName: '朱陈正华',
+      useTime: '2026-04-26 08:30:00',
+      returnPersonName: '朱陈正华',
+      returnTime: '2026-04-26 10:20:00',
+      status: 'RETURNED'
+    }
+  ]
+  statistics.value = {
+    totalTools: 2,
+    toolRecords: 2,
+    unreturnedCount: 1
+  }
   updateLastUpdateTime()
 }
 
-const getStatusConfig = (status) => {
-  const configs = {
-    pending: { label: '待领用', type: 'warning' },
-    completed: { label: '已完成', type: 'success' },
-    overdue: { label: '已逾期', type: 'danger' }
-  }
-  return configs[status] || { label: '未知', type: 'info' }
-}
-
 onMounted(() => {
-  if (USE_WEBSOCKET) {
+  if (useWebSocket) {
     connectWebSocket()
   } else {
     startPolling()
   }
+  startActiveToolsPolling()
 })
 
 onBeforeUnmount(() => {
-  // 清理资源
   stopPolling()
+  stopActiveToolsPolling()
   if (ws) {
     ws.close()
     ws = null
@@ -543,3 +585,210 @@ onBeforeUnmount(() => {
   }
 })
 </script>
+
+<style scoped>
+.dashboard-page {
+  min-height: 100vh;
+  padding: 24px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7ed 100%);
+}
+
+.dashboard-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.dashboard-header h1 {
+  margin: 0 0 8px;
+  color: #303133;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.header-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-subtitle p {
+  margin: 0;
+  color: #909399;
+}
+
+.status-icon {
+  margin-right: 4px;
+}
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sync-button {
+  width: 100%;
+}
+
+.last-update {
+  margin-bottom: 16px;
+  text-align: right;
+}
+
+.loading-panel {
+  padding: 100px 0;
+  color: #409eff;
+  text-align: center;
+}
+
+.loading-panel p {
+  margin-top: 16px;
+  color: #909399;
+}
+
+.stats-row {
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  color: #fff;
+  border: none;
+}
+
+.stat-blue {
+  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
+}
+
+.stat-green {
+  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
+}
+
+.stat-orange {
+  background: linear-gradient(135deg, #e6a23c 0%, #ebb563 100%);
+}
+
+.stat-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-content p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.stat-content strong {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.dashboard-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+}
+
+.records-card,
+.active-tools-card {
+  width: 100%;
+}
+
+.card-header,
+.card-title {
+  display: flex;
+  align-items: center;
+}
+
+.card-header {
+  justify-content: space-between;
+}
+
+.card-title {
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.active-tools-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  color: #909399;
+}
+
+.active-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.active-tool-item {
+  padding: 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #f9fafc;
+}
+
+.active-tool-name {
+  color: #303133;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.active-tool-rfid {
+  margin-top: 6px;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+:deep(.new-record-row) {
+  --el-table-tr-bg-color: #fef0f0;
+}
+
+@media (max-width: 768px) {
+  .dashboard-page {
+    padding: 12px;
+  }
+
+  .dashboard-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar {
+    width: 100%;
+    align-items: flex-end;
+  }
+
+  .sync-button {
+    width: auto;
+  }
+
+  .dashboard-content {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
