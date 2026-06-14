@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能无感出入库终端预览</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-deep: #03142c;
+      --bg-panel: rgba(5, 45, 100, 0.68);
+      --bg-panel-strong: rgba(3, 66, 138, 0.82);
+      --cyan: #20f4ff;
+      --cyan-soft: rgba(32, 244, 255, 0.58);
+      --cyan-line: rgba(32, 244, 255, 0.34);
+      --blue: #0b73f6;
+      --text: #e7fbff;
+      --muted: #8acbe2;
+      --yellow: #ffd766;
+      --green: #37ffc6;
+      --danger: #ff5e8d;
+    }
+
+    body {
+      min-width: 1280px;
+      min-height: 100vh;
+      margin: 0;
+      overflow: auto;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 50% 112%, rgba(0, 111, 255, 0.45) 0, rgba(0, 111, 255, 0.18) 25%, transparent 45%),
+        radial-gradient(circle at 18% 20%, rgba(32, 244, 255, 0.12) 0, transparent 28%),
+        linear-gradient(135deg, rgba(3, 14, 32, 0.97), rgba(5, 37, 83, 0.94) 46%, rgba(2, 12, 30, 0.98)),
+        repeating-linear-gradient(90deg, rgba(64, 223, 255, 0.06) 0 1px, transparent 1px 116px);
+    }
+
+    .screen {
+      position: relative;
+      min-height: 100vh;
+      padding: 24px 34px 26px;
+      overflow: hidden;
+    }
+
+    .screen::before,
+    .screen::after {
+      position: absolute;
+      inset: auto;
+      pointer-events: none;
+      content: "";
+    }
+
+    .screen::before {
+      right: 10%;
+      bottom: -160px;
+      width: 680px;
+      height: 320px;
+      border: 1px solid rgba(35, 218, 255, 0.16);
+      border-radius: 50%;
+      box-shadow: 0 0 48px rgba(0, 125, 255, 0.35) inset;
+      transform: rotateX(65deg);
+    }
+
+    .screen::after {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 210px;
+      background:
+        linear-gradient(180deg, transparent, rgba(0, 78, 180, 0.22)),
+        repeating-linear-gradient(90deg, transparent 0 42px, rgba(34, 225, 255, 0.12) 42px 44px),
+        repeating-linear-gradient(0deg, transparent 0 36px, rgba(34, 225, 255, 0.1) 36px 37px);
+      transform: perspective(520px) rotateX(58deg);
+      transform-origin: bottom;
+    }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: 94px 104px minmax(0, 1fr) 24px;
+      gap: 16px;
+      min-height: calc(100vh - 50px);
+    }
+
+    .topbar {
+      position: relative;
+      display: grid;
+      grid-template-columns: 320px 1fr 320px;
+      align-items: center;
+      min-height: 94px;
+      padding: 0 26px;
+      border: 1px solid var(--cyan-line);
+      background:
+        linear-gradient(90deg, rgba(4, 43, 91, 0.64), rgba(41, 154, 226, 0.2), rgba(4, 43, 91, 0.64)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 60%);
+      box-shadow:
+        0 0 34px rgba(32, 244, 255, 0.15) inset,
+        0 0 24px rgba(0, 148, 255, 0.18);
+    }
+
+    .topbar::before,
+    .topbar::after {
+      position: absolute;
+      top: -1px;
+      width: 96px;
+      height: 18px;
+      border-top: 3px solid var(--cyan);
+      content: "";
+    }
+
+    .topbar::before {
+      left: -1px;
+      border-left: 3px solid var(--cyan);
+    }
+
+    .topbar::after {
+      right: -1px;
+      border-right: 3px solid var(--cyan);
+    }
+
+    .time {
+      color: #d5f9ff;
+      font-size: 17px;
+      font-weight: 700;
+      text-shadow: 0 0 10px rgba(32, 244, 255, 0.62);
+    }
+
+    .title {
+      margin: 0;
+      color: #f3fdff;
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1;
+      text-align: center;
+      text-shadow: 0 0 18px rgba(160, 238, 255, 0.58);
+    }
+
+    .platform-link {
+      justify-self: end;
+      color: #ff7d70;
+      font-size: 18px;
+      font-weight: 800;
+      text-shadow: 0 0 12px rgba(255, 98, 86, 0.65);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .metric {
+      position: relative;
+      display: flex;
+      align-items: center;
+      min-height: 104px;
+      padding: 12px 34px;
+      border: 1px solid var(--cyan-line);
+      background:
+        linear-gradient(90deg, rgba(8, 58, 122, 0.72), rgba(13, 97, 172, 0.38), rgba(5, 45, 100, 0.72));
+      box-shadow:
+        0 0 26px rgba(32, 244, 255, 0.16) inset,
+        0 0 22px rgba(0, 148, 255, 0.14);
+      overflow: hidden;
+    }
+
+    .metric::before,
+    .metric::after {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      content: "";
+    }
+
+    .metric::before {
+      top: -1px;
+      left: -1px;
+      border-top: 4px solid var(--cyan);
+      border-left: 4px solid var(--cyan);
+    }
+
+    .metric::after {
+      right: -1px;
+      bottom: -1px;
+      border-right: 4px solid var(--cyan);
+      border-bottom: 4px solid var(--cyan);
+    }
+
+    .metric-icon {
+      display: grid;
+      place-items: center;
+      width: 70px;
+      height: 70px;
+      margin-right: 20px;
+      color: #efffff;
+      border: 2px solid rgba(32, 244, 255, 0.72);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(44, 233, 255, 0.45), rgba(0, 108, 210, 0.72));
+      box-shadow:
+        0 0 22px rgba(32, 244, 255, 0.48),
+        0 0 24px rgba(32, 244, 255, 0.3) inset;
+    }
+
+    .metric-icon svg {
+      width: 34px;
+      height: 34px;
+      fill: currentColor;
+    }
+
+    .metric-number {
+      color: var(--cyan);
+      font-size: 34px;
+      font-weight: 900;
+      line-height: 1;
+      text-shadow: 0 0 14px rgba(32, 244, 255, 0.78);
+    }
+
+    .metric-unit {
+      margin-left: 5px;
+      color: var(--cyan);
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .metric-label {
+      margin-top: 8px;
+      color: #e9fbff;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 410px;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    .left-stack,
+    .right-stack {
+      display: grid;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    .left-stack {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .right-stack {
+      grid-template-rows: 1.08fr 0.92fr;
+    }
+
+    .panel {
+      position: relative;
+      min-height: 0;
+      border: 1px solid rgba(32, 244, 255, 0.52);
+      background:
+        linear-gradient(180deg, rgba(6, 68, 142, 0.58), rgba(2, 31, 74, 0.76)),
+        radial-gradient(circle at 50% 100%, rgba(0, 127, 255, 0.26), transparent 42%);
+      box-shadow:
+        0 0 30px rgba(32, 244, 255, 0.18) inset,
+        0 0 18px rgba(0, 148, 255, 0.2);
+      overflow: hidden;
+    }
+
+    .panel::before,
+    .panel::after {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      pointer-events: none;
+      content: "";
+    }
+
+    .panel::before {
+      top: -1px;
+      left: -1px;
+      border-top: 4px solid var(--cyan);
+      border-left: 4px solid var(--cyan);
+    }
+
+    .panel::after {
+      right: -1px;
+      bottom: -1px;
+      border-right: 4px solid var(--cyan);
+      border-bottom: 4px solid var(--cyan);
+    }
+
+    .panel-title {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 44px;
+      color: #f4fdff;
+      font-size: 21px;
+      font-weight: 900;
+      background: linear-gradient(180deg, rgba(31, 229, 255, 0.42), rgba(0, 92, 184, 0.28));
+      border-bottom: 1px solid rgba(32, 244, 255, 0.36);
+      text-shadow: 0 0 13px rgba(32, 244, 255, 0.7);
+    }
+
+    .panel-title::before,
+    .panel-title::after {
+      margin: 0 18px;
+      color: var(--cyan);
+      font-size: 18px;
+      letter-spacing: -2px;
+      content: ">>>>>";
+    }
+
+    .panel-title::after {
+      content: "<<<<<";
+    }
+
+    .actions {
+      position: absolute;
+      top: 60px;
+      right: 24px;
+      z-index: 2;
+      display: flex;
+      gap: 10px;
+    }
+
+    .action-button {
+      min-width: 94px;
+      height: 42px;
+      color: #ccffff;
+      font-size: 18px;
+      font-weight: 900;
+      border: 1px solid rgba(32, 244, 255, 0.72);
+      background: linear-gradient(180deg, rgba(20, 232, 255, 0.42), rgba(0, 82, 174, 0.62));
+      box-shadow:
+        0 0 18px rgba(32, 244, 255, 0.28) inset,
+        0 0 12px rgba(32, 244, 255, 0.24);
+      text-shadow: 0 0 8px rgba(32, 244, 255, 0.8);
+    }
+
+    .table-wrap {
+      height: calc(100% - 44px);
+      padding: 78px 22px 18px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th {
+      height: 40px;
+      color: #ddfbff;
+      font-size: 15px;
+      font-weight: 900;
+      background: rgba(35, 147, 222, 0.56);
+      border-bottom: 1px solid rgba(108, 238, 255, 0.62);
+    }
+
+    td {
+      height: 78px;
+      padding: 8px 9px;
+      color: #eefcff;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.25;
+      text-align: center;
+      border-bottom: 1px solid rgba(192, 248, 255, 0.78);
+      text-shadow: 0 0 9px rgba(123, 232, 255, 0.28);
+      word-break: break-word;
+    }
+
+    tr:nth-child(even) td {
+      background: rgba(3, 76, 160, 0.18);
+    }
+
+    .index {
+      color: #fff;
+      font-size: 17px;
+    }
+
+    .person {
+      color: var(--yellow);
+    }
+
+    .returner {
+      color: var(--green);
+    }
+
+    .pagination {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      margin-top: 14px;
+    }
+
+    .page-button {
+      display: grid;
+      place-items: center;
+      min-width: 34px;
+      height: 32px;
+      padding: 0 9px;
+      color: #d9ffff;
+      font-size: 14px;
+      font-weight: 900;
+      border: 1px solid rgba(32, 244, 255, 0.5);
+      background: linear-gradient(180deg, rgba(25, 207, 237, 0.34), rgba(0, 67, 140, 0.78));
+      box-shadow: 0 0 9px rgba(32, 244, 255, 0.23);
+    }
+
+    .page-button.active {
+      color: #00374b;
+      background: linear-gradient(180deg, #34faff, #06a8f3);
+    }
+
+    .usage-body {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 20px;
+      align-items: center;
+      height: calc(100% - 44px);
+      padding: 18px 24px;
+    }
+
+    .donut {
+      position: relative;
+      width: 158px;
+      height: 158px;
+      border-radius: 50%;
+      background: conic-gradient(
+        #23dcff 0 13%,
+        #9c7cff 13% 27%,
+        #ff7ab9 27% 46%,
+        #ffd35a 46% 51%,
+        #a3ee5c 51% 68%,
+        #31f38a 68% 84%,
+        #7c9fff 84% 100%
+      );
+      box-shadow: 0 0 24px rgba(32, 244, 255, 0.22);
+    }
+
+    .donut::after {
+      position: absolute;
+      inset: 31px;
+      display: grid;
+      place-items: center;
+      color: var(--cyan);
+      font-size: 36px;
+      font-weight: 900;
+      text-align: center;
+      white-space: pre;
+      border-radius: 50%;
+      background: #062a5c;
+      box-shadow: 0 0 20px rgba(32, 244, 255, 0.28) inset;
+      content: "263\a总数";
+    }
+
+    .legend {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .legend li {
+      display: grid;
+      grid-template-columns: 18px 1fr 42px;
+      gap: 10px;
+      align-items: center;
+      color: #ddfbff;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .active-list {
+      display: grid;
+      gap: 11px;
+      height: calc(100% - 44px);
+      padding: 18px 22px;
+    }
+
+    .tool-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 54px;
+      padding: 10px 14px;
+      color: #ecfeff;
+      border: 1px solid rgba(32, 244, 255, 0.28);
+      background: linear-gradient(90deg, rgba(4, 76, 162, 0.52), rgba(3, 35, 82, 0.38));
+    }
+
+    .tool-name {
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .tool-rfid {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tool-state {
+      color: var(--green);
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .chart-body {
+      height: calc(100% - 44px);
+      padding: 18px 24px 20px;
+    }
+
+    .chart {
+      position: relative;
+      height: 100%;
+      min-height: 190px;
+      border-left: 1px solid rgba(182, 246, 255, 0.72);
+      border-bottom: 1px solid rgba(182, 246, 255, 0.72);
+    }
+
+    .bars {
+      position: absolute;
+      right: 18px;
+      bottom: 0;
+      left: 38px;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      align-items: end;
+      height: 76%;
+    }
+
+    .bar {
+      min-width: 22px;
+      background: linear-gradient(180deg, rgba(45, 246, 255, 0.95), rgba(0, 91, 214, 0.76));
+      box-shadow: 0 0 16px rgba(32, 244, 255, 0.32);
+    }
+
+    .line {
+      position: absolute;
+      right: 18px;
+      bottom: 42px;
+      left: 38px;
+      height: 112px;
+      border: 3px solid #ffe487;
+      border-right: 0;
+      border-bottom: 0;
+      border-radius: 64px 0 0;
+      filter: drop-shadow(0 0 7px rgba(255, 228, 135, 0.56));
+    }
+
+    .month-labels {
+      position: absolute;
+      right: 18px;
+      bottom: -24px;
+      left: 38px;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      color: #e9fbff;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 42px;
+      color: #d2f8ff;
+      font-size: 14px;
+      font-weight: 800;
+      text-shadow: 0 0 10px rgba(32, 244, 255, 0.45);
+    }
+
+    @media (max-width: 1360px) {
+      body {
+        min-width: 1180px;
+      }
+
+      .workspace {
+        grid-template-columns: minmax(0, 1fr) 360px;
+      }
+
+      .title {
+        font-size: 31px;
+      }
+
+      td {
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="screen">
+    <section class="shell">
+      <header class="topbar">
+        <div class="time">2026-04-13 14:31:33</div>
+        <h1 class="title">智能无感出入库终端</h1>
+        <div class="platform-link">→ 管理平台</div>
+      </header>
+
+      <section class="metrics" aria-label="核心指标">
+        <div class="metric">
+          <div class="metric-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 6h16v4h-2v8H6v-8H4V6Zm4 4v6h8v-6H8Zm1-6h6l2 2H7l2-2Z"/></svg>
+          </div>
+          <div>
+            <div><span class="metric-number">115</span><span class="metric-unit">件</span></div>
+            <div class="metric-label">总库存</div>
+          </div>
+        </div>
+        <div class="metric">
+          <div class="metric-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 4h14v4h-2v10H7V8H5V4Zm4 6v2h6v-2H9Zm0 4v2h6v-2H9Z"/></svg>
+          </div>
+          <div>
+            <div><span class="metric-number">0</span><span class="metric-unit">件</span></div>
+            <div class="metric-label">待归还</div>
+          </div>
+        </div>
+        <div class="metric">
+          <div class="metric-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M8 4h8l1 2h4v2H3V6h4l1-2Zm1 6h2v8H9v-8Zm4 0h2v8h-2v-8ZM6 10h12l-1 10H7L6 10Z"/></svg>
+          </div>
+          <div>
+            <div><span class="metric-number">0</span><span class="metric-unit">件</span></div>
+            <div class="metric-label">报废</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="left-stack">
+          <section class="panel records-panel">
+            <div class="panel-title">历史出入库数据</div>
+            <div class="actions">
+              <button class="action-button">工作票</button>
+              <button class="action-button">开门</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <colgroup>
+                  <col style="width: 54px">
+                  <col style="width: 160px">
+                  <col style="width: 150px">
+                  <col style="width: 150px">
+                  <col style="width: 100px">
+                  <col style="width: 155px">
+                  <col style="width: 100px">
+                  <col style="width: 155px">
+                  <col style="width: 90px">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>序号</th>
+                    <th>标签号</th>
+                    <th>工具名称</th>
+                    <th>工具编号</th>
+                    <th>领用人</th>
+                    <th>领用时间</th>
+                    <th>归还人</th>
+                    <th>归还时间</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="index">1</td>
+                    <td>0220800000<br>0000000971483</td>
+                    <td>携带型短路接地线</td>
+                    <td>as-ta-hd-10k<br>VXD-JDX-0008</td>
+                    <td class="person">孙凯</td>
+                    <td>2026-04-10<br>13:33:23</td>
+                    <td class="returner">李健</td>
+                    <td>2026-04-10<br>17:23:49</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td class="index">2</td>
+                    <td>0220800000<br>0000000971155</td>
+                    <td>绝缘操作杆</td>
+                    <td>as-ta-hd-JY<br>CZG-0002</td>
+                    <td class="person">孙凯</td>
+                    <td>2026-04-10<br>08:35:48</td>
+                    <td class="returner">孙凯</td>
+                    <td>2026-04-10<br>09:08:10</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td class="index">3</td>
+                    <td>0220800000<br>0000006770233</td>
+                    <td>安全带</td>
+                    <td>as-ta-hd-AQ<br>D-0002</td>
+                    <td class="person">孙凯</td>
+                    <td>2026-04-09<br>12:09:41</td>
+                    <td class="returner">孙凯</td>
+                    <td>2026-04-09<br>12:10:04</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td class="index">4</td>
+                    <td>0220800000<br>0000000971148</td>
+                    <td>绝缘操作杆</td>
+                    <td>as-ta-hd-JY<br>CZG-0001</td>
+                    <td class="person">孙凯</td>
+                    <td>2026-04-08<br>10:12:37</td>
+                    <td class="returner">孙凯</td>
+                    <td>2026-04-08<br>16:17:01</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td class="index">5</td>
+                    <td>0220800000<br>0000005255595</td>
+                    <td>绝缘梯</td>
+                    <td>as-ta-hd-JYT<br>-0002</td>
+                    <td class="person">孙凯</td>
+                    <td>2026-04-07<br>08:47:04</td>
+                    <td class="returner">孙凯</td>
+                    <td>2026-04-07<br>11:47:21</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="pagination" aria-label="分页">
+                <div class="page-button">‹</div>
+                <div class="page-button active">1</div>
+                <div class="page-button">2</div>
+                <div class="page-button">3</div>
+                <div class="page-button">4</div>
+                <div class="page-button">5</div>
+                <div class="page-button">6</div>
+                <div class="page-button">...</div>
+                <div class="page-button">14</div>
+                <div class="page-button">›</div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="right-stack">
+          <section class="panel">
+            <div class="panel-title">工器具使用率</div>
+            <div class="usage-body">
+              <div class="donut" aria-label="工器具总数 263"></div>
+              <ul class="legend">
+                <li><span class="dot" style="color:#23dcff;background:#23dcff"></span><span>绝缘操作杆</span><strong>8</strong></li>
+                <li><span class="dot" style="color:#9c7cff;background:#9c7cff"></span><span>安全帽</span><strong>46</strong></li>
+                <li><span class="dot" style="color:#31c8ff;background:#31c8ff"></span><span>安全带</span><strong>74</strong></li>
+                <li><span class="dot" style="color:#ffc35a;background:#ffc35a"></span><span>短路接地线</span><strong>10</strong></li>
+                <li><span class="dot" style="color:#ff6a9c;background:#ff6a9c"></span><span>脚扣</span><strong>30</strong></li>
+                <li><span class="dot" style="color:#98a9ff;background:#98a9ff"></span><span>辅助型绝缘靴</span><strong>1</strong></li>
+                <li><span class="dot" style="color:#d9ff3a;background:#d9ff3a"></span><span>个人保安线</span><strong>7</strong></li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">当前识别工具</div>
+            <div class="active-list">
+              <div class="tool-card">
+                <div>
+                  <div class="tool-name">携带型短路接地线</div>
+                  <div class="tool-rfid">0220800000000000971483</div>
+                </div>
+                <div class="tool-state">识别中</div>
+              </div>
+              <div class="tool-card">
+                <div>
+                  <div class="tool-name">绝缘操作杆</div>
+                  <div class="tool-rfid">0220800000000000971155</div>
+                </div>
+                <div class="tool-state">识别中</div>
+              </div>
+              <div class="tool-card">
+                <div>
+                  <div class="tool-name">安全带</div>
+                  <div class="tool-rfid">0220800000000006770233</div>
+                </div>
+                <div class="tool-state">识别中</div>
+              </div>
+              <div class="chart">
+                <div class="bars">
+                  <div class="bar" style="height:42%"></div>
+                  <div class="bar" style="height:76%"></div>
+                  <div class="bar" style="height:69%"></div>
+                  <div class="bar" style="height:18%"></div>
+                  <div class="bar" style="height:8%"></div>
+                  <div class="bar" style="height:8%"></div>
+                </div>
+                <div class="line"></div>
+                <div class="month-labels">
+                  <span>1月</span>
+                  <span>2月</span>
+                  <span>3月</span>
+                  <span>4月</span>
+                  <span>5月</span>
+                  <span>6月</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <footer class="footer">
+        <span>版本：v1.0.2-5</span>
+        <span>当前登录人员：孙凯</span>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>
