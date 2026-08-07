@@ -215,7 +215,6 @@
                 </div>
                 <div class="active-tool-rfid">{{ tool.rfid || '-' }}</div>
               </div>
-              <span class="tool-state">{{ tool.state || '识别中' }}</span>
             </div>
           </div>
         </section>
@@ -262,9 +261,14 @@
             {{ row.inspectionWarningStatus || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="useRecordStatus" label="领用归还状态" min-width="140" show-overflow-tooltip>
+        <el-table-column
+          prop="useRecordStatus"
+          :label="toolDialogMode === 'overdue' ? '工具状态' : '领用归还状态'"
+          min-width="140"
+          show-overflow-tooltip
+        >
           <template #default="{ row }">
-            {{ row.useRecordStatus || '-' }}
+            {{ toolDialogMode === 'overdue' ? formatToolStatus(row.useRecordStatus) : (row.useRecordStatus || '-') }}
           </template>
         </el-table-column>
       </el-table>
@@ -341,6 +345,19 @@ const formatRfid = (value) => {
 }
 
 const isOverdueTool = (item = {}) => getTextValue(item.assetStatus) === '1'
+
+const TOOL_STATUS_LABELS = Object.freeze({
+  0: '在役',
+  1: '作废',
+  2: '待审核',
+  3: '已退回',
+  9: '已删除'
+})
+
+const formatToolStatus = (value) => {
+  const status = getTextValue(value)
+  return TOOL_STATUS_LABELS[status] || status || '-'
+}
 
 const dialogTools = computed(() => {
   if (toolDialogMode.value === 'overdue') {
@@ -1549,11 +1566,6 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
-.tool-state {
-  color: #00ffad;
-  font-size: 12px;
-  font-weight: 700;
-}
 
 .dashboard-footer {
   z-index: 1;

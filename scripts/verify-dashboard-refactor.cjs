@@ -13,6 +13,12 @@ const toolInfoVo = read(backendRoot, 'domain', 'ToolInfoVo.java')
 const toolRecordVo = read(backendRoot, 'domain', 'ToolInOutRecordVo.java')
 const warehouseService = read(backendRoot, 'service', 'WarehouseService.java')
 const recordService = read(backendRoot, 'Conf', 'DB', 'service', 'impl', 'ToolInOutRecordServiceImpl.java')
+const usePlanService = read(backendRoot, 'Conf', 'DB', 'service', 'UsePlanService.java')
+const usePlanServiceImpl = read(backendRoot, 'Conf', 'DB', 'service', 'impl', 'UsePlanServiceImpl.java')
+const usePlanMapper = read(backendRoot, 'Conf', 'DB', 'mapper', 'UsePlanMapper.java')
+const usePlanMapperXml = read(frontendRoot, '..', 'WMS-RFID', 'src', 'main', 'resources', 'mapper', 'UsePlanMapper.xml')
+const facePicSyncService = read(backendRoot, 'UseScene', 'FacePicSyncSceneService.java')
+const facePicReceiveParams = read(backendRoot, 'FromEdgeDevice', 'Params', 'FacePicReceiveParams.java')
 const countsOverdueTools = /ToolInfo::getAssetStatus/.test(warehouseService)
   && /ASSET_STATUS_INVALID\s*=\s*["']1["']/.test(warehouseService)
 
@@ -41,6 +47,25 @@ const expectations = [
   ['aggregate pie chart data by tool name', /buildToolChartData/.test(source)],
   ['use dashboard title', /智能无感出入库终端/.test(source)],
   ['keep active tools section', /当前识别工具/.test(source)]
+  , ['active tools hide IN/OUT state labels', !/<span class="tool-state">/.test(source)],
+  ['overdue dialog shows tool status title', /toolDialogMode\s*===\s*'overdue'\s*\?\s*'工具状态'/.test(source)],
+  ['overdue dialog maps tool status codes to Chinese labels', /formatToolStatus\(row\.useRecordStatus\)/.test(source)
+    && /0:\s*'在役'/.test(source)
+    && /1:\s*'作废'/.test(source)
+    && /2:\s*'待审核'/.test(source)
+    && /3:\s*'已退回'/.test(source)
+    && /9:\s*'已删除'/.test(source)],
+  ['matched person plan displays planned outbound', /return PLAN_STATUS_PLANNED;/.test(recordService)
+    && /selectActiveUsePlansByPersonIdAndQueryTime\(\s*record\.getUsePersonId\(\), queryTime\)/.test(recordService)],
+  ['face config DTO exposes plan timing and tools', /private String usePlanStartTime;/.test(facePicReceiveParams)
+    && /private String usePlanEndTime;/.test(facePicReceiveParams)
+    && /private List<Tool> tools;/.test(facePicReceiveParams)],
+  ['face config persists a complete plan for every administrator', /for \(FacePicReceiveParams\.Administrator administrator : administrators\)/.test(facePicSyncService)
+    && /usePlan\.setUsePersonId\(administrator\.getId\(\)\)/.test(facePicSyncService)
+    && /usePlan\.setUsePlanStartTime\(body\.getUsePlanStartTime\(\)\)/.test(facePicSyncService)
+    && /usePlan\.setUsePlanEndTime\(body\.getUsePlanEndTime\(\)\)/.test(facePicSyncService)
+    && /usePlan\.setTools\(toolsJson\)/.test(facePicSyncService)
+    && /usePlanService\.saveOrUpdateByMidAndPersonId\(usePlan\)/.test(facePicSyncService)]
 ]
 
 const failures = expectations.filter(([, passed]) => !passed)
