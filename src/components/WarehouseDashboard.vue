@@ -89,7 +89,7 @@
 
         <section class="tech-card records-card">
           <div class="card-title">
-            工器具出入库记录
+            当日日任务工具清单
             <span class="count-badge">{{ toolRecords.length }} 条</span>
             <span
               v-if="newRecordsCount > 0"
@@ -103,50 +103,36 @@
             <table>
               <thead>
                 <tr>
-                  <th class="status-col">状态</th>
-                  <th class="rfid-col">标签号</th>
+                  <th>计划状态</th>
+                  <th>任务名称</th>
                   <th>工具名称</th>
                   <th>领用人</th>
                   <th>领用时间</th>
-                  <th>计划状态</th>
                   <th>归还人</th>
                   <th>归还时间</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="loading && !toolRecords.length">
-                  <td colspan="8">
+                    <td colspan="7">
                     <div class="table-empty">加载中...</div>
                   </td>
                 </tr>
                 <tr v-else-if="!toolRecords.length">
-                  <td colspan="8">
-                    <div class="table-empty">暂无出入库记录</div>
+                    <td colspan="7">
+                    <div class="table-empty">暂无日任务工具清单</div>
                   </td>
                 </tr>
                 <tr
                   v-for="(row, index) in toolRecords"
                   v-else
-                  :key="row.id || row.rfid || index"
+                  :key="row.id || `${row.taskToolId || 'task-tool'}-${index}`"
                   :class="{ 'new-record-row': isNewRecord(row.id) }"
                 >
                   <td>
-                    <span v-if="isRecordCompleted(row)" class="status-text-done">已完成</span>
-                    <button
-                      v-else
-                      class="btn-status-action"
-                      type="button"
-                      :disabled="isCompletingRecord(row.id)"
-                      @click="completeRecord(row)"
-                    >
-                      {{ isCompletingRecord(row.id) ? '处理中' : '完成' }}
-                    </button>
+                    <span class="plan-status">{{ row.planStatus || '未领用' }}</span>
                   </td>
-                  <td>
-                    <span class="rfid-cell" :title="row.rfid || '-'">
-                      {{ formatRfid(row.rfid) }}
-                    </span>
-                  </td>
+                  <td>{{ row.jobName || '-' }}</td>
                   <td>
                     <span :class="{ 'unmatched-tool-name': isUnmatchedToolName(row) }">
                       {{ getDisplayToolName(row) }}
@@ -154,7 +140,6 @@
                   </td>
                   <td class="person">{{ row.usePersonName || '-' }}</td>
                   <td>{{ row.useTime || '-' }}</td>
-                  <td class="plan-status">{{ row.planStatus || '临时出库' }}</td>
                   <td class="returner">{{ row.returnPersonName || '-' }}</td>
                   <td>
                     <span v-if="row.returnTime">{{ row.returnTime }}</span>
