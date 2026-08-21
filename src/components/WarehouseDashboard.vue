@@ -87,6 +87,62 @@
           </button>
         </div>
 
+        <section class="tech-card plan-query-card">
+          <div class="card-title">日/周计划查询</div>
+          <div class="plan-query-controls">
+            <label>
+              查询日期
+              <input v-model="planQueryDate" type="date" :disabled="planQueryLoading">
+            </label>
+            <div class="plan-type-switch" role="radiogroup" aria-label="计划类型">
+              <button
+                type="button"
+                :class="{ active: planQueryType === 'DAY' }"
+                :disabled="planQueryLoading"
+                @click="planQueryType = 'DAY'"
+              >日计划</button>
+              <button
+                type="button"
+                :class="{ active: planQueryType === 'WEEK' }"
+                :disabled="planQueryLoading"
+                @click="planQueryType = 'WEEK'"
+              >周计划</button>
+            </div>
+            <button class="btn-query-plan" type="button" :disabled="planQueryLoading || !planQueryDate" @click="fetchPlans">
+              {{ planQueryLoading ? '查询中...' : '实时查询' }}
+            </button>
+          </div>
+
+          <div v-if="planQueryResult" class="plan-query-result">
+            <div class="plan-query-summary">
+              {{ planQueryType === 'DAY' ? `查询日期：${planQueryResult.queryDate}` : `查询范围：${planQueryResult.rangeStart} 至 ${planQueryResult.rangeEnd}` }}
+              <span class="count-badge">{{ planQueryResult.plans.length }} 个计划</span>
+            </div>
+            <div v-if="!planQueryResult.plans.length" class="table-empty">该范围暂无计划</div>
+            <div v-else class="table-container plan-query-table">
+              <table>
+                <thead>
+                  <tr><th>计划名称</th><th>计划内容</th><th>时间</th><th>班组</th><th>工具清单</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="plan in planQueryResult.plans" :key="plan.jobPlanId">
+                    <td>{{ plan.jobName || '-' }}</td>
+                    <td>{{ plan.jobContent || '-' }}</td>
+                    <td>{{ plan.startTime || '-' }}<br>{{ plan.stopTime || '-' }}</td>
+                    <td>{{ plan.useBzName || '-' }}</td>
+                    <td>
+                      <span v-if="!plan.tools.length" class="muted-text">暂无工具明细</span>
+                      <div v-for="tool in plan.tools" v-else :key="`${tool.useListId}-${tool.itemId}`">
+                        {{ tool.toolName || '-' }} × {{ tool.requiredCount || 0 }}
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <section class="tech-card records-card">
           <div class="card-title">
             当日日任务工具清单
@@ -288,6 +344,10 @@ const completingRecordIds = ref(new Set())
 const toolsDialogVisible = ref(false)
 const toolDialogMode = ref('all')
 const toolsChartRef = ref(null)
+const planQueryDate = ref(new Date().toISOString().slice(0, 10))
+const planQueryType = ref('DAY')
+const planQueryLoading = ref(false)
+const planQueryResult = ref(null)
 
 let ws = null
 let pollingTimer = null
@@ -310,6 +370,7 @@ const API_ENDPOINTS = {
   statistics: `${API_BASE_URL}/statistics`,
   activeTools: `${API_BASE_URL}/active-tools`,
   syncToolInfo: `${API_BASE_URL}/syncToolInfo`,
+  plans: (planType, date) => `${API_BASE_URL}/plans?planType=${encodeURIComponent(planType)}&date=${encodeURIComponent(date)}`,
   completeRecord: (id) => `${API_BASE_URL}/tool-records/${id}/complete`
 }
 
@@ -561,6 +622,23 @@ const fetchTools = async (showError = true) => {
   } finally {
     toolsLoading.value = false
     renderToolChart()
+  }
+}
+
+const fetchPlans = async () => {
+  planQueryLoading.value = true
+  try {
+    const response = await fetch(API_ENDPOINTS.plans(planQueryType.value, planQueryDate.value))
+    const responseText = await response.text()
+    if (!response.ok) {
+      throw new Error(responseText || '计划查询失败')
+    }
+    planQueryResult.value = responseText ? JSON.parse(responseText) : null
+  } catch (err) {
+    console.error('[Dashboard] 实时计划查询失败:', err)
+    ElMessage.error(err.message || '计划查询失败')
+  } finally {
+    planQueryLoading.value = false
   }
 }
 
@@ -888,6 +966,79 @@ onBeforeUnmount(() => {
     linear-gradient(rgba(18, 54, 114, 0.1) 1px, transparent 1px),
     linear-gradient(90deg, rgba(18, 54, 114, 0.1) 1px, transparent 1px);
   background-size: 100% 100%, 40px 40px, 40px 40px;
+}
+
+.plan-query-card {
+  margin-bottom: 18px;
+}
+
+.plan-query-controls {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.plan-query-controls label {
+  display: grid;
+  gap: 6px;
+  color: #8fa0c4;
+  font-size: 13px;
+}
+
+.plan-query-controls input {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  border-radius: 4px;
+  color: #dcecff;
+  background: rgba(5, 17, 40, 0.72);
+}
+
+.plan-type-switch {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  border-radius: 4px;
+}
+
+.plan-type-switch button,
+.btn-query-plan {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  color: #aabddd;
+  background: rgba(9, 42, 82, 0.75);
+  cursor: pointer;
+}
+
+.plan-type-switch button.active,
+.btn-query-plan {
+  color: #061426;
+  background: #00e5ff;
+}
+
+.plan-type-switch button:disabled,
+.btn-query-plan:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.plan-query-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #8fa0c4;
+  font-size: 13px;
+}
+
+.plan-query-table td {
+  vertical-align: top;
+}
+
+.muted-text {
+  color: #5e7198;
 }
 
 .dashboard-page::after {
