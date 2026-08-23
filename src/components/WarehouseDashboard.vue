@@ -93,20 +93,19 @@
             <label>
               查询日期
               <input v-model="planQueryDate" type="date" :disabled="planQueryLoading">
+              <span v-if="planQueryType === 'WEEK'" class="plan-query-hint">
+                {{ planQueryRangeLabel }}
+              </span>
             </label>
             <div class="plan-type-switch" role="radiogroup" aria-label="计划类型">
-              <button
-                type="button"
-                :class="{ active: planQueryType === 'DAY' }"
-                :disabled="planQueryLoading"
-                @click="planQueryType = 'DAY'"
-              >日计划</button>
-              <button
-                type="button"
-                :class="{ active: planQueryType === 'WEEK' }"
-                :disabled="planQueryLoading"
-                @click="planQueryType = 'WEEK'"
-              >周计划</button>
+              <label class="plan-type-option" :class="{ active: planQueryType === 'DAY' }">
+                <input v-model="planQueryType" type="radio" value="DAY" :disabled="planQueryLoading">
+                <span>日计划</span>
+              </label>
+              <label class="plan-type-option" :class="{ active: planQueryType === 'WEEK' }">
+                <input v-model="planQueryType" type="radio" value="WEEK" :disabled="planQueryLoading">
+                <span>周计划</span>
+              </label>
             </div>
             <button class="btn-query-plan" type="button" :disabled="planQueryLoading || !planQueryDate" @click="fetchPlans">
               {{ planQueryLoading ? '查询中...' : '实时查询' }}
@@ -344,10 +343,26 @@ const completingRecordIds = ref(new Set())
 const toolsDialogVisible = ref(false)
 const toolDialogMode = ref('all')
 const toolsChartRef = ref(null)
-const planQueryDate = ref(new Date().toISOString().slice(0, 10))
+const formatDateInputValue = (date) => {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+const planQueryDate = ref(formatDateInputValue(new Date()))
 const planQueryType = ref('DAY')
 const planQueryLoading = ref(false)
 const planQueryResult = ref(null)
+
+const planQueryRangeLabel = computed(() => {
+  if (planQueryType.value !== 'WEEK' || !planQueryDate.value) return ''
+  const selected = new Date(`${planQueryDate.value}T00:00:00`)
+  const monday = new Date(selected)
+  const day = selected.getDay() || 7
+  monday.setDate(selected.getDate() - day + 1)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return `本周：${formatDateInputValue(monday)} 至 ${formatDateInputValue(sunday)}`
+})
 
 let ws = null
 let pollingTimer = null
@@ -974,7 +989,7 @@ onBeforeUnmount(() => {
 
 .plan-query-controls {
   display: flex;
-  align-items: end;
+  align-items: flex-start;
   gap: 14px;
   margin: 16px 0;
 }
@@ -987,38 +1002,111 @@ onBeforeUnmount(() => {
 }
 
 .plan-query-controls input {
-  min-height: 36px;
+  height: 36px;
   padding: 0 10px;
   border: 1px solid rgba(0, 243, 255, 0.35);
-  border-radius: 4px;
+  border-radius: 8px;
   color: #dcecff;
   background: rgba(5, 17, 40, 0.72);
+  color-scheme: dark;
+}
+
+.plan-query-controls input[type='date'] {
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4.5' width='18' height='16' rx='2'/%3E%3Cpath d='M16 2.5v4M8 2.5v4M3 9h18'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 18px 18px;
+}
+
+.plan-query-controls input[type='date']::-webkit-calendar-picker-indicator {
+  width: 24px;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.plan-query-hint {
+  color: #6f86ae;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .plan-type-switch {
   display: flex;
-  overflow: hidden;
-  border: 1px solid rgba(0, 243, 255, 0.35);
-  border-radius: 4px;
+  gap: 8px;
 }
 
-.plan-type-switch button,
-.btn-query-plan {
+.plan-type-option {
+  position: relative;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: auto;
   min-height: 36px;
-  padding: 0 16px;
+  padding: 0 4px;
   border: 0;
+  border-radius: 0;
   color: #aabddd;
-  background: rgba(9, 42, 82, 0.75);
+  background: transparent;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.plan-type-option input {
+  position: relative;
+  width: 17px;
+  height: 17px;
+  min-height: 17px !important;
+  margin: 0;
+  padding: 0 !important;
+  border: 1px solid rgba(0, 243, 255, 0.6) !important;
+  border-radius: 50%;
+  appearance: none;
+  opacity: 1;
+  pointer-events: auto;
+  background: rgba(5, 17, 40, 0.72);
   cursor: pointer;
 }
 
-.plan-type-switch button.active,
-.btn-query-plan {
-  color: #061426;
-  background: #00e5ff;
+.plan-type-option input:checked {
+  border-color: #00e5ff !important;
+  background: radial-gradient(circle, #00e5ff 0 4px, transparent 4.5px), rgba(5, 17, 40, 0.72);
 }
 
-.plan-type-switch button:disabled,
+.plan-type-option.active {
+  color: #ffffff;
+}
+
+.plan-type-option:has(input:focus-visible),
+.btn-query-plan:focus-visible,
+.plan-query-controls input:focus-visible {
+  outline: 2px solid rgba(255, 236, 0, 0.9);
+  outline-offset: 2px;
+}
+
+.btn-query-plan {
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid #00e5ff;
+  border-radius: 8px;
+  color: #061426;
+  background: #00e5ff;
+  cursor: pointer;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.plan-query-controls > .plan-type-switch,
+.plan-query-controls > .btn-query-plan {
+  margin-top: 25px;
+}
+
+.btn-query-plan:not(:disabled):hover {
+  background: #42edff;
+  transform: translateY(-1px);
+}
+
+.plan-type-option:has(input:disabled),
 .btn-query-plan:disabled {
   cursor: not-allowed;
   opacity: 0.55;
