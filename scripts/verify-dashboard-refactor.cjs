@@ -35,12 +35,23 @@ const expectations = [
   ['records table adds plan status column', /计划状态/.test(source) && /row\.planStatus/.test(source)],
   ['records table hides horizontal scrollbar', /\.table-container\s*\{[\s\S]*overflow-x:\s*hidden/.test(source)],
   ['records table uses fixed layout without minimum width', /table\s*\{[\s\S]*table-layout:\s*fixed/.test(source) && !/min-width:\s*960px/.test(source)],
-  ['rfid column renders compact display with full title', /formatRfid/.test(source) && /:title="row\.rfid/.test(source)],
-  ['rfid column has compact class hooks', /class="rfid-col"/.test(source) && /class="rfid-cell"/.test(source)],
+  ['plan query and tool status share one table', /task-table-card/.test(source)
+    && /日\/周计划与工具状态/.test(source)
+    && /工具状态/.test(source)],
+  ['tool records query accepts plan type and date range', /toolRecords: \(date, endDate, planType\)/.test(source)
+    && /endDate/.test(source)
+    && /planType/.test(source)
+    && /fetchTaskRecords/.test(source)],
   ['tool record VO exposes planStatus', /private\s+String\s+planStatus/.test(toolRecordVo)],
-  ['record service associates active use plans', /selectActiveUsePlansByPersonIdAndQueryTime/.test(recordService)],
-  ['plan status has planned fallback label', /计划出库/.test(recordService)],
-  ['plan status has temporary fallback label', /临时出库/.test(recordService)],
+  ['tool record VO exposes plan context and demand count', /private\s+String\s+jobPlanId/.test(toolRecordVo)
+    && /private\s+String\s+jobContent/.test(toolRecordVo)
+    && /private\s+Integer\s+requiredCount/.test(toolRecordVo)],
+  ['record service supports plan type and date range task records', /listTaskToolRecords\(LocalDate startDate, LocalDate endDate,\s*PlanQueryType planType, int limit\)/.test(recordService)
+    && /findJobPlans\(safeStartDate, safeEndDate, planType\)/.test(recordService)],
+  ['plans without tool details remain visible', /appendPlanWithoutTool/.test(recordService)
+    && /overlapsQueryRange/.test(recordService)
+    && /status === 'NO_TOOL'/.test(source)
+    && /暂无工具明细/.test(source)],
   ['keep original tool records fallback logic', /statistics\.toolRecords\s*\|\|\s*toolRecords\.length/.test(source)],
   ['use ECharts dependency', /from ['"]echarts['"]/.test(source)],
   ['provide tool chart container', /ref=["']toolsChartRef["']/.test(source)],
@@ -55,8 +66,6 @@ const expectations = [
     && /2:\s*'待审核'/.test(source)
     && /3:\s*'已退回'/.test(source)
     && /9:\s*'已删除'/.test(source)],
-  ['matched person plan displays planned outbound', /return PLAN_STATUS_PLANNED;/.test(recordService)
-    && /selectActiveUsePlansByPersonIdAndQueryTime\(\s*record\.getUsePersonId\(\), queryTime\)/.test(recordService)],
   ['face config DTO exposes plan timing and tools', /private String usePlanStartTime;/.test(facePicReceiveParams)
     && /private String usePlanEndTime;/.test(facePicReceiveParams)
     && /private List<Tool> tools;/.test(facePicReceiveParams)],

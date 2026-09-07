@@ -87,8 +87,18 @@
           </button>
         </div>
 
-        <section class="tech-card plan-query-card">
-          <div class="card-title">日/周计划查询</div>
+        <section class="tech-card task-table-card">
+          <div class="card-title">
+            日/周计划与工具状态
+            <span class="count-badge">{{ toolRecords.length }} 条</span>
+            <span
+              v-if="newRecordsCount > 0"
+              class="new-record-badge"
+            >
+              新增 {{ newRecordsCount }}
+            </span>
+          </div>
+
           <div class="plan-query-controls">
             <label>
               查询日期
@@ -117,50 +127,20 @@
               {{ planQueryType === 'DAY' ? `查询日期：${planQueryResult.queryDate}` : `查询范围：${planQueryResult.rangeStart} 至 ${planQueryResult.rangeEnd}` }}
               <span class="count-badge">{{ planQueryResult.plans.length }} 个计划</span>
             </div>
-            <div v-if="!planQueryResult.plans.length" class="table-empty">该范围暂无计划</div>
-            <div v-else class="table-container plan-query-table">
-              <table>
-                <thead>
-                  <tr><th>计划名称</th><th>计划内容</th><th>时间</th><th>班组</th><th>工具清单</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="plan in planQueryResult.plans" :key="plan.jobPlanId">
-                    <td>{{ plan.jobName || '-' }}</td>
-                    <td>{{ plan.jobContent || '-' }}</td>
-                    <td>{{ plan.startTime || '-' }}<br>{{ plan.stopTime || '-' }}</td>
-                    <td>{{ plan.useBzName || '-' }}</td>
-                    <td>
-                      <span v-if="!plan.tools.length" class="muted-text">暂无工具明细</span>
-                      <div v-for="tool in plan.tools" v-else :key="`${tool.useListId}-${tool.itemId}`">
-                        {{ tool.toolName || '-' }} × {{ tool.requiredCount || 0 }}
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section class="tech-card records-card">
-          <div class="card-title">
-            当日日任务工具清单
-            <span class="count-badge">{{ toolRecords.length }} 条</span>
-            <span
-              v-if="newRecordsCount > 0"
-              class="new-record-badge"
-            >
-              新增 {{ newRecordsCount }}
-            </span>
           </div>
 
-          <div class="table-container">
+          <div class="table-container task-status-table">
             <table>
               <thead>
                 <tr>
-                  <th>计划状态</th>
-                  <th>任务名称</th>
+                  <th>计划名称</th>
+                  <th>计划内容</th>
+                  <th>时间</th>
+                  <th>班组</th>
                   <th>工具名称</th>
+                  <th>需求数量</th>
+                  <th>计划状态</th>
+                  <th>工具状态</th>
                   <th>领用人</th>
                   <th>领用时间</th>
                   <th>归还人</th>
@@ -169,13 +149,13 @@
               </thead>
               <tbody>
                 <tr v-if="loading && !toolRecords.length">
-                    <td colspan="7">
+                    <td colspan="12">
                     <div class="table-empty">加载中...</div>
                   </td>
                 </tr>
                 <tr v-else-if="!toolRecords.length">
-                    <td colspan="7">
-                    <div class="table-empty">暂无日任务工具清单</div>
+                    <td colspan="12">
+                    <div class="table-empty">{{ planQueryResult && !planQueryResult.plans.length ? '该范围暂无计划' : '暂无任务工具清单' }}</div>
                   </td>
                 </tr>
                 <tr
@@ -184,20 +164,30 @@
                   :key="row.id || `${row.taskToolId || 'task-tool'}-${index}`"
                   :class="{ 'new-record-row': isNewRecord(row.id) }"
                 >
+                  <td>{{ row.jobName || '-' }}</td>
+                  <td>{{ row.jobContent || '-' }}</td>
+                  <td>{{ row.startTime || '-' }}<br>{{ row.stopTime || '-' }}</td>
+                  <td>{{ row.useBzName || '-' }}</td>
+                  <td>
+                    <span v-if="isNoToolDetail(row)" class="muted-text">暂无工具明细</span>
+                    <span v-else :class="{ 'unmatched-tool-name': isUnmatchedToolName(row) }">
+                      {{ getDisplayToolName(row) }}
+                    </span>
+                  </td>
+                  <td>{{ isNoToolDetail(row) ? '-' : (row.requiredCount || 0) }}</td>
                   <td>
                     <span class="plan-status">{{ row.planStatus || '未领用' }}</span>
                   </td>
-                  <td>{{ row.jobName || '-' }}</td>
                   <td>
-                    <span :class="{ 'unmatched-tool-name': isUnmatchedToolName(row) }">
-                      {{ getDisplayToolName(row) }}
-                    </span>
+                    <span v-if="isNoToolDetail(row)" class="muted-text">-</span>
+                    <span v-else :class="getToolStatusClass(row)">{{ getToolStatusLabel(row) }}</span>
                   </td>
                   <td class="person">{{ row.usePersonName || '-' }}</td>
                   <td>{{ row.useTime || '-' }}</td>
                   <td class="returner">{{ row.returnPersonName || '-' }}</td>
                   <td>
                     <span v-if="row.returnTime">{{ row.returnTime }}</span>
+                    <span v-else-if="isNoToolDetail(row)" class="muted-text">-</span>
                     <span v-else class="warning-text">未归还</span>
                   </td>
                 </tr>
@@ -364,6 +354,21 @@ const planQueryRangeLabel = computed(() => {
   return `本周：${formatDateInputValue(monday)} 至 ${formatDateInputValue(sunday)}`
 })
 
+const getTaskQueryEndDate = () => {
+  if (planQueryType.value !== 'WEEK' || !planQueryDate.value) return planQueryDate.value
+  if (planQueryResult.value?.planType === 'WEEK'
+      && planQueryResult.value.queryDate === planQueryDate.value) {
+    return planQueryResult.value.rangeEnd || planQueryDate.value
+  }
+  const selected = new Date(`${planQueryDate.value}T00:00:00`)
+  const day = selected.getDay() || 7
+  const monday = new Date(selected)
+  monday.setDate(selected.getDate() - day + 1)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return formatDateInputValue(sunday)
+}
+
 let ws = null
 let pollingTimer = null
 let activeToolsTimer = null
@@ -380,7 +385,14 @@ const API_BASE_URL = 'http://localhost:8080/api/dashboard'
 const WS_URL = 'ws://localhost:8080/ws'
 
 const API_ENDPOINTS = {
-  toolRecords: `${API_BASE_URL}/tool-records`,
+  toolRecords: (date, endDate, planType) => {
+    const params = new URLSearchParams()
+    if (date) params.set('date', date)
+    if (endDate && endDate !== date) params.set('endDate', endDate)
+    if (planType) params.set('planType', planType)
+    const query = params.toString()
+    return `${API_BASE_URL}/tool-records${query ? `?${query}` : ''}`
+  },
   tools: `${API_BASE_URL}/tools`,
   statistics: `${API_BASE_URL}/statistics`,
   activeTools: `${API_BASE_URL}/active-tools`,
@@ -443,6 +455,20 @@ const getDisplayToolName = (item = {}) => {
 
 const isRecordCompleted = (row = {}) => {
   return row.status === 'RETURNED' || Boolean(row.returnTime)
+}
+
+const isNoToolDetail = (row = {}) => row.status === 'NO_TOOL'
+
+const getToolStatusLabel = (row = {}) => {
+  if (row.status === 'RETURNED' || row.returnTime) return '已归还'
+  if (row.status === 'BORROWED' || row.useTime) return '已领用'
+  return '待领用'
+}
+
+const getToolStatusClass = (row = {}) => {
+  if (row.status === 'RETURNED' || row.returnTime) return 'status-text-done'
+  if (row.status === 'BORROWED' || row.useTime) return 'status-text-borrowed'
+  return 'status-text-pending'
 }
 
 const isCompletingRecord = (id) => completingRecordIds.value.has(id)
@@ -649,11 +675,28 @@ const fetchPlans = async () => {
       throw new Error(responseText || '计划查询失败')
     }
     planQueryResult.value = responseText ? JSON.parse(responseText) : null
+    await fetchTaskRecords(planQueryDate.value, getTaskQueryEndDate(), planQueryType.value)
   } catch (err) {
     console.error('[Dashboard] 实时计划查询失败:', err)
     ElMessage.error(err.message || '计划查询失败')
   } finally {
     planQueryLoading.value = false
+  }
+}
+
+const fetchTaskRecords = async (queryDate, endDate, planType, showError = true) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.toolRecords(queryDate, endDate, planType))
+    if (!response.ok) {
+      throw new Error('获取任务工具清单失败')
+    }
+    const records = await response.json()
+    applyRecords(records)
+    updateLastUpdateTime()
+  } catch (err) {
+    console.error('[Dashboard] 获取任务工具清单失败:', err)
+    if (showError) ElMessage.error(err.message || '获取任务工具清单失败')
+    throw err
   }
 }
 
@@ -722,12 +765,12 @@ const fetchActiveTools = async () => {
 const fetchData = async () => {
   try {
     console.info('[Dashboard] 开始请求工器具出入库数据', {
-      recordsUrl: API_ENDPOINTS.toolRecords,
+      recordsUrl: API_ENDPOINTS.toolRecords(planQueryDate.value, getTaskQueryEndDate(), planQueryType.value),
       statisticsUrl: API_ENDPOINTS.statistics
     })
 
     const [recordsRes, statisticsRes] = await Promise.all([
-      fetch(API_ENDPOINTS.toolRecords),
+      fetch(API_ENDPOINTS.toolRecords(planQueryDate.value, getTaskQueryEndDate(), planQueryType.value)),
       fetch(API_ENDPOINTS.statistics)
     ])
 
@@ -780,7 +823,9 @@ const connectWebSocket = () => {
         const data = JSON.parse(event.data)
 
         if (data.type === 'update') {
-          if (data.toolRecords) {
+          if (data.toolRecords
+              && planQueryType.value === 'DAY'
+              && planQueryDate.value === formatDateInputValue(new Date())) {
             applyRecords(data.toolRecords)
           }
           if (data.statistics) {
@@ -938,6 +983,7 @@ onMounted(() => {
   }
   startActiveToolsPolling()
   fetchTools(false)
+  fetchPlans()
 })
 
 onBeforeUnmount(() => {
@@ -983,8 +1029,8 @@ onBeforeUnmount(() => {
   background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
-.plan-query-card {
-  margin-bottom: 18px;
+.task-table-card {
+  flex: 1;
 }
 
 .plan-query-controls {
@@ -1013,15 +1059,14 @@ onBeforeUnmount(() => {
 
 .plan-query-controls input[type='date'] {
   padding-right: 40px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4.5' width='18' height='16' rx='2'/%3E%3Cpath d='M16 2.5v4M8 2.5v4M3 9h18'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 18px 18px;
 }
 
 .plan-query-controls input[type='date']::-webkit-calendar-picker-indicator {
-  width: 24px;
-  opacity: 0;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  opacity: 1;
+  filter: brightness(0) invert(1);
   cursor: pointer;
 }
 
@@ -1121,8 +1166,52 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.plan-query-table td {
+.task-status-table th,
+.task-status-table td {
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+.task-status-table th {
+  font-size: 12px;
+}
+
+.task-status-table td {
   vertical-align: top;
+  font-size: 12px;
+}
+
+.task-status-table th:nth-child(1) {
+  width: 13%;
+}
+
+.task-status-table th:nth-child(2) {
+  width: 12%;
+}
+
+.task-status-table th:nth-child(3) {
+  width: 12%;
+}
+
+.task-status-table th:nth-child(4) {
+  width: 9%;
+}
+
+.task-status-table th:nth-child(5) {
+  width: 10%;
+}
+
+.task-status-table th:nth-child(6),
+.task-status-table th:nth-child(7),
+.task-status-table th:nth-child(8) {
+  width: 7%;
+}
+
+.task-status-table th:nth-child(9),
+.task-status-table th:nth-child(10),
+.task-status-table th:nth-child(11),
+.task-status-table th:nth-child(12) {
+  width: 8%;
 }
 
 .muted-text {
@@ -1658,6 +1747,21 @@ tbody tr:hover {
   align-items: center;
   color: #8fa0c4;
   font-size: 12px;
+}
+
+.status-text-borrowed,
+.status-text-pending {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+}
+
+.status-text-borrowed {
+  color: #ffec00;
+}
+
+.status-text-pending {
+  color: #ffb04f;
 }
 
 .status-text-done::before {
