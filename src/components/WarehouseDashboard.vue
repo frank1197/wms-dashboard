@@ -138,7 +138,7 @@
                   <th>时间</th>
                   <th>班组</th>
                   <th>工具名称</th>
-                  <th>需求数量</th>
+                  <th>工具 RFID</th>
                   <th>计划状态</th>
                   <th>工具状态</th>
                   <th>领用人</th>
@@ -155,7 +155,7 @@
                 </tr>
                 <tr v-else-if="!toolRecords.length">
                     <td colspan="12">
-                    <div class="table-empty">{{ planQueryResult && !planQueryResult.plans.length ? '该范围暂无计划' : '暂无任务工具清单' }}</div>
+                    <div class="table-empty">{{ planQueryResult && !planQueryResult.plans.length ? '该范围暂无计划' : '暂无已绑定出库工具' }}</div>
                   </td>
                 </tr>
                 <tr
@@ -174,9 +174,9 @@
                       {{ getDisplayToolName(row) }}
                     </span>
                   </td>
-                  <td>{{ isNoToolDetail(row) ? '-' : (row.requiredCount || 0) }}</td>
+                  <td><span class="rfid-cell">{{ isNoToolDetail(row) ? '-' : formatRfid(row.rfid) }}</span></td>
                   <td>
-                    <span class="plan-status">{{ row.planStatus || '未领用' }}</span>
+                    <span class="plan-status">{{ row.planStatus || '未开始' }}</span>
                   </td>
                   <td>
                     <span v-if="isNoToolDetail(row)" class="muted-text">-</span>
@@ -210,6 +210,14 @@
           <div class="card-title">
             当前识别工具
             <span class="count-badge">{{ activeRedisTools.length }} 条</span>
+            <button
+              class="btn-bind-tools"
+              type="button"
+              :disabled="!selectedActiveTools.length || assignmentLoading"
+              @click="openAssignmentDialog"
+            >
+              绑定任务{{ selectedActiveTools.length ? ` (${selectedActiveTools.length})` : '' }}
+            </button>
           </div>
 
           <div
@@ -235,7 +243,16 @@
               v-for="tool in activeRedisTools"
               :key="tool.rfid"
               class="active-tool-item"
+              :class="{ 'active-tool-item-selected': isToolSelected(tool) }"
             >
+              <input
+                class="tool-select-checkbox"
+                type="checkbox"
+                :checked="isToolSelected(tool)"
+                :disabled="tool.state !== 'OUT'"
+                :aria-label="`选择工具 ${getDisplayToolName(tool)}`"
+                @change="toggleToolSelection(tool)"
+              >
               <div>
                 <div
                   class="active-tool-name"
@@ -244,6 +261,7 @@
                   {{ getDisplayToolName(tool) }}
                 </div>
                 <div class="active-tool-rfid">{{ tool.rfid || '-' }}</div>
+                <div class="active-tool-state">{{ tool.state === 'OUT' ? '待绑定任务' : '库内' }}</div>
               </div>
             </div>
           </div>
@@ -303,6 +321,46 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <el-dialog
+      v-model="assignmentDialogVisible"
+      title="绑定出库工具到任务"
+      width="560px"
+      class="tools-dialog assignment-dialog"
+      :close-on-click-modal="false"
+    >
+      <div class="assignment-body">
+        <div class="assignment-summary">
+          已选择 {{ selectedActiveTools.length }} 件工具
+          <span class="muted-text">绑定后将发送任务工具领用请求</span>
+        </div>
+        <label class="assignment-label" for="assignment-job-plan">所属日计划/周计划</label>
+        <select
+          id="assignment-job-plan"
+          v-model="assignmentJobPlanId"
+          class="assignment-select"
+          :disabled="planQueryLoading || assignmentLoading"
+        >
+          <option value="">请选择任务</option>
+          <option v-for="plan in availablePlans" :key="plan.jobPlanId" :value="plan.jobPlanId">
+            {{ plan.jobName || plan.jobPlanId }}（{{ plan.startTime || '-' }}）
+          </option>
+        </select>
+        <div v-if="planQueryLoading" class="assignment-hint">正在加载计划...</div>
+        <div v-else-if="!availablePlans.length" class="assignment-hint">暂无可绑定计划，请先查询日计划或周计划</div>
+      </div>
+      <template #footer>
+        <button class="assignment-cancel" type="button" @click="assignmentDialogVisible = false">取消</button>
+        <button
+          class="btn-query-plan assignment-submit"
+          type="button"
+          :disabled="assignmentLoading || planQueryLoading || !assignmentJobPlanId || !selectedActiveTools.length"
+          @click="assignSelectedTools"
+        >
+          {{ assignmentLoading ? '绑定中...' : '确认绑定' }}
+        </button>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
@@ -342,6 +400,10 @@ const planQueryDate = ref(formatDateInputValue(new Date()))
 const planQueryType = ref('DAY')
 const planQueryLoading = ref(false)
 const planQueryResult = ref(null)
+const selectedActiveTools = ref([])
+const assignmentDialogVisible = ref(false)
+const assignmentJobPlanId = ref('')
+const assignmentLoading = ref(false)
 
 const planQueryRangeLabel = computed(() => {
   if (planQueryType.value !== 'WEEK' || !planQueryDate.value) return ''
@@ -398,8 +460,13 @@ const API_ENDPOINTS = {
   activeTools: `${API_BASE_URL}/active-tools`,
   syncToolInfo: `${API_BASE_URL}/syncToolInfo`,
   plans: (planType, date) => `${API_BASE_URL}/plans?planType=${encodeURIComponent(planType)}&date=${encodeURIComponent(date)}`,
-  completeRecord: (id) => `${API_BASE_URL}/tool-records/${id}/complete`
+  completeRecord: (id) => `${API_BASE_URL}/tool-records/${id}/complete`,
+  assignTools: `${API_BASE_URL}/tool-records/assign`
 }
+
+const availablePlans = computed(() => planQueryResult.value?.plans || [])
+const hasCurrentPlanQuery = computed(() => planQueryResult.value?.planType === planQueryType.value
+  && planQueryResult.value?.queryDate === planQueryDate.value)
 
 const connectionStatus = ref({
   text: '连接中',
@@ -451,6 +518,28 @@ const isUnmatchedToolName = (item = {}) => {
 
 const getDisplayToolName = (item = {}) => {
   return isUnmatchedToolName(item) ? '未匹配工具' : getTextValue(item.toolName)
+}
+
+const isToolSelected = (tool = {}) => selectedActiveTools.value.includes(tool.rfid)
+
+const toggleToolSelection = (tool = {}) => {
+  if (!tool.rfid || tool.state !== 'OUT') return
+  selectedActiveTools.value = isToolSelected(tool)
+    ? selectedActiveTools.value.filter(rfid => rfid !== tool.rfid)
+    : [...selectedActiveTools.value, tool.rfid]
+}
+
+const openAssignmentDialog = async () => {
+  if (!selectedActiveTools.value.length) return
+  assignmentJobPlanId.value = ''
+  assignmentDialogVisible.value = true
+  if (!hasCurrentPlanQuery.value) {
+    try {
+      await fetchPlans()
+    } catch (err) {
+      console.error('[Dashboard] 加载可绑定计划失败:', err)
+    }
+  }
 }
 
 const isRecordCompleted = (row = {}) => {
@@ -681,6 +770,42 @@ const fetchPlans = async () => {
     ElMessage.error(err.message || '计划查询失败')
   } finally {
     planQueryLoading.value = false
+  }
+}
+
+const assignSelectedTools = async () => {
+  if (!assignmentJobPlanId.value || !selectedActiveTools.value.length) return
+  assignmentLoading.value = true
+  try {
+    const response = await fetch(API_ENDPOINTS.assignTools, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobPlanId: assignmentJobPlanId.value,
+        rfids: selectedActiveTools.value
+      })
+    })
+    const responseText = await response.text()
+    if (!response.ok) {
+      throw new Error(responseText || '工具绑定任务失败')
+    }
+    const result = responseText ? JSON.parse(responseText) : {}
+    selectedActiveTools.value = []
+    assignmentDialogVisible.value = false
+    if (result.mqttSyncStatus === 'FAILED') {
+      ElMessage.warning('工具已绑定任务，但 MQTT 同步失败，请稍后重试')
+    } else {
+      ElMessage.success('工具已绑定任务并发送出库请求')
+    }
+    await Promise.all([
+      fetchData(),
+      fetchActiveTools()
+    ])
+  } catch (err) {
+    console.error('[Dashboard] 工具绑定任务失败:', err)
+    ElMessage.error(err.message || '工具绑定任务失败')
+  } finally {
+    assignmentLoading.value = false
   }
 }
 
@@ -1016,7 +1141,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  min-width: 1180px;
+  min-width: 0;
   min-height: 720px;
   overflow: hidden;
   color: #ffffff;
@@ -1607,6 +1732,23 @@ button.kpi-box:hover {
   text-shadow: 0 0 5px rgba(0, 243, 255, 0.3);
 }
 
+.btn-bind-tools {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 5px 10px;
+  color: #061426;
+  font-size: 12px;
+  cursor: pointer;
+  background: #ffec00;
+  border: 1px solid #ffec00;
+  border-radius: 4px;
+}
+
+.btn-bind-tools:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .card-title::before {
   margin-right: 8px;
   font-size: 12px;
@@ -1878,6 +2020,18 @@ tbody tr:hover {
   border-radius: 4px;
 }
 
+.active-tool-item-selected {
+  border-color: #ffec00;
+  box-shadow: inset 0 0 10px rgba(255, 236, 0, 0.12);
+}
+
+.tool-select-checkbox {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #00e5ff;
+}
+
 .active-tool-name {
   color: #dffcff;
   font-size: 14px;
@@ -1892,6 +2046,59 @@ tbody tr:hover {
   font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.active-tool-state {
+  margin-top: 4px;
+  color: #ffec00;
+  font-size: 11px;
+}
+
+.assignment-body {
+  display: grid;
+  gap: 12px;
+}
+
+.assignment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  color: #e8fbff;
+}
+
+.assignment-label {
+  color: #8fa0c4;
+  font-size: 13px;
+}
+
+.assignment-select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  color: #e8fbff;
+  background: #071b3b;
+  border: 1px solid rgba(0, 243, 255, 0.45);
+  border-radius: 4px;
+}
+
+.assignment-hint {
+  color: #ffb04f;
+  font-size: 12px;
+}
+
+.assignment-cancel {
+  min-height: 36px;
+  padding: 0 14px;
+  color: #d1ddf7;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid rgba(143, 160, 196, 0.45);
+  border-radius: 4px;
+}
+
+.assignment-submit {
+  margin-top: 0 !important;
 }
 
 
@@ -1911,6 +2118,10 @@ tbody tr:hover {
   --el-dialog-bg-color: #071b3b;
   --el-dialog-text-color: #e8fbff;
   --el-border-color: rgba(0, 243, 255, 0.28);
+}
+
+:deep(.tools-dialog.el-dialog) {
+  max-width: calc(100vw - 24px);
 }
 
 :deep(.tools-dialog .el-dialog__title) {
@@ -1971,6 +2182,162 @@ tbody tr:hover {
 
   .header h1 {
     font-size: 22px;
+  }
+}
+
+@media (max-width: 900px) {
+  .main-container {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .left-column-large,
+  .right-column-small {
+    flex: none;
+    width: 100%;
+  }
+
+  .right-column-small {
+    min-width: 0;
+    min-height: 420px;
+  }
+
+  .task-table-card {
+    min-height: 460px;
+  }
+}
+
+@media (max-width: 600px) {
+  .dashboard-page {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .header {
+    height: auto;
+    min-height: 82px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .header h1 {
+    position: static;
+    order: -1;
+    width: 100%;
+    font-size: 18px;
+    line-height: 1.3;
+    white-space: normal;
+    transform: none;
+  }
+
+  .left-info,
+  .action-container {
+    min-width: 0;
+  }
+
+  .left-info {
+    flex: 1;
+    flex-wrap: wrap;
+  }
+
+  .action-container {
+    gap: 8px;
+  }
+
+  .btn-sync {
+    width: 32px;
+    padding: 6px;
+    font-size: 0;
+  }
+
+  .main-container {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .kpi-container {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .kpi-box {
+    min-height: 66px;
+    padding: 10px;
+  }
+
+  .kpi-box .label {
+    font-size: 12px;
+  }
+
+  .kpi-box .value {
+    font-size: 22px;
+  }
+
+  .tech-card {
+    padding: 12px;
+  }
+
+  .plan-query-controls {
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+
+  .plan-query-controls > .plan-type-switch,
+  .plan-query-controls > .btn-query-plan {
+    margin-top: 0;
+  }
+
+  .task-status-table th,
+  .task-status-table td {
+    padding: 8px 5px;
+    font-size: 11px;
+  }
+
+  .task-status-table th:nth-child(2),
+  .task-status-table td:nth-child(2),
+  .task-status-table th:nth-child(3),
+  .task-status-table td:nth-child(3),
+  .task-status-table th:nth-child(4),
+  .task-status-table td:nth-child(4),
+  .task-status-table th:nth-child(6),
+  .task-status-table td:nth-child(6),
+  .task-status-table th:nth-child(9),
+  .task-status-table td:nth-child(9),
+  .task-status-table th:nth-child(10),
+  .task-status-table td:nth-child(10),
+  .task-status-table th:nth-child(11),
+  .task-status-table td:nth-child(11),
+  .task-status-table th:nth-child(12),
+  .task-status-table td:nth-child(12) {
+    display: none;
+  }
+
+  .task-status-table th:nth-child(1) { width: 31%; }
+  .task-status-table th:nth-child(5) { width: 28%; }
+  .task-status-table th:nth-child(7) { width: 20%; }
+  .task-status-table th:nth-child(8) { width: 21%; }
+
+  .card-title {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .btn-bind-tools {
+    margin-left: 0;
+  }
+
+  .active-tool-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dashboard-footer {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 8px 10px;
   }
 }
 </style>
