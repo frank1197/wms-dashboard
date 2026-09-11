@@ -64,20 +64,20 @@
               <span>件</span>
             </span>
           </button>
-          <div class="kpi-box">
+          <button class="kpi-box" type="button" @click="openRecordDetails('all')">
             <span class="label">出入库记录</span>
             <span class="value color-borrow">
               {{ statistics.toolRecords || toolRecords.length }}
               <span>条</span>
             </span>
-          </div>
-          <div class="kpi-box">
+          </button>
+          <button class="kpi-box" type="button" @click="openRecordDetails('unreturned')">
             <span class="label">未归还数量</span>
             <span class="value color-return">
               {{ statistics.unreturnedCount || 0 }}
               <span>件</span>
             </span>
-          </div>
+          </button>
           <button class="kpi-box" type="button" @click="openToolsDialog('overdue')">
             <span class="label">逾期工具</span>
             <span class="value color-overdue">
@@ -107,19 +107,14 @@
                 {{ planQueryRangeLabel }}
               </span>
             </label>
-            <div class="plan-type-switch" role="radiogroup" aria-label="计划类型">
-              <label class="plan-type-option" :class="{ active: planQueryType === 'DAY' }">
-                <input v-model="planQueryType" type="radio" value="DAY" :disabled="planQueryLoading">
-                <span>日计划</span>
-              </label>
-              <label class="plan-type-option" :class="{ active: planQueryType === 'WEEK' }">
-                <input v-model="planQueryType" type="radio" value="WEEK" :disabled="planQueryLoading">
-                <span>周计划</span>
-              </label>
-              <label class="plan-type-option" :class="{ active: planQueryType === 'TEMP' }">
-                <input v-model="planQueryType" type="radio" value="TEMP" :disabled="planQueryLoading">
-                <span>临时计划</span>
-              </label>
+            <div class="plan-type-select-wrap">
+              <label for="plan-query-type">计划类型</label>
+              <select id="plan-query-type" v-model="planQueryType" class="plan-type-select" :disabled="planQueryLoading">
+                <option value="DAY">日计划</option>
+                <option value="WEEK">周计划</option>
+                <option value="TEMP">工作任务</option>
+                <option value="TEMP_TASK">临时出库</option>
+              </select>
             </div>
             <button class="btn-query-plan" type="button" :disabled="planQueryLoading || !planQueryDate" @click="fetchPlans">
               {{ planQueryLoading ? '查询中...' : '实时查询' }}
@@ -159,7 +154,7 @@
                 </tr>
                 <tr v-else-if="!toolRecords.length">
                     <td colspan="12">
-                <div class="table-empty">{{ getEmptyRecordsMessage() }}</div>
+                    <div class="table-empty">{{ getEmptyRecordsMessage() }}</div>
                   </td>
                 </tr>
                 <tr
@@ -328,7 +323,7 @@
 
     <el-dialog
       v-model="assignmentDialogVisible"
-      :title="assignmentJobPlanId === 'TEMP_PLAN' ? '登记临时领用工具' : '绑定出库工具到计划'"
+      :title="getAssignmentDialogTitle()"
       width="560px"
       class="tools-dialog assignment-dialog"
       :close-on-click-modal="false"
@@ -336,7 +331,7 @@
       <div class="assignment-body">
         <div class="assignment-summary">
           已选择 {{ selectedActiveTools.length }} 件工具
-          <span class="muted-text">日/周计划会同步任务领用，临时计划仅记录领用和归还</span>
+          <span class="muted-text">日/周计划按任务同步，工作任务和临时出库由人工确认归属</span>
         </div>
         <label class="assignment-label" for="assignment-job-plan">所属计划</label>
         <select
@@ -346,13 +341,14 @@
           :disabled="planQueryLoading || assignmentLoading"
         >
           <option value="">请选择任务</option>
-          <option value="TEMP_PLAN">临时计划（仅记录领用和归还）</option>
+          <option value="TEMP_PLAN">工作任务（按现有逻辑处理）</option>
+          <option value="TEMP_TASK">临时出库（仅本地维护，不发送 MQTT）</option>
           <option v-for="plan in availablePlans" :key="plan.jobPlanId" :value="plan.jobPlanId">
             {{ plan.jobName || plan.jobPlanId }}（{{ plan.startTime || '-' }}）
           </option>
         </select>
         <div v-if="planQueryLoading" class="assignment-hint">正在加载计划...</div>
-        <div v-else-if="!availablePlans.length" class="assignment-hint">暂无可绑定计划，可选择临时计划</div>
+        <div v-else-if="!availablePlans.length" class="assignment-hint">暂无日/周计划，可选择工作任务或临时出库</div>
       </div>
       <template #footer>
         <button class="assignment-cancel" type="button" @click="assignmentDialogVisible = false">取消</button>
@@ -365,6 +361,36 @@
           {{ assignmentLoading ? '绑定中...' : '确认绑定' }}
         </button>
       </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="recordDetailDialogVisible"
+      :title="recordDetailMode === 'unreturned' ? '未归还详情' : '出入库记录详情'"
+      width="980px"
+      class="tools-dialog record-detail-dialog"
+    >
+      <el-table
+        v-loading="recordDetailLoading"
+        :data="recordDetailRows"
+        height="520"
+        stripe
+        border
+        empty-text="暂无出入库记录"
+      >
+        <el-table-column prop="jobName" label="任务类型" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="toolName" label="工具名称" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.toolName || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="rfid" label="工具 RFID" min-width="190" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.rfid || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="usePersonName" label="领用人" min-width="110" />
+        <el-table-column prop="useTime" label="领用时间" min-width="165" />
+        <el-table-column prop="returnPersonName" label="归还人" min-width="110" />
+        <el-table-column prop="returnTime" label="归还时间" min-width="165">
+          <template #default="{ row }">{{ row.returnTime || '未归还' }}</template>
+        </el-table-column>
+      </el-table>
     </el-dialog>
   </main>
 </template>
@@ -395,6 +421,10 @@ const newRecordsCount = ref(0)
 const completingRecordIds = ref(new Set())
 const toolsDialogVisible = ref(false)
 const toolDialogMode = ref('all')
+const recordDetailDialogVisible = ref(false)
+const recordDetailMode = ref('all')
+const recordDetailLoading = ref(false)
+const recordDetailRows = ref([])
 const toolsChartRef = ref(null)
 const formatDateInputValue = (date) => {
   const pad = (value) => String(value).padStart(2, '0')
@@ -463,6 +493,7 @@ const API_ENDPOINTS = {
   tools: `${API_BASE_URL}/tools`,
   statistics: `${API_BASE_URL}/statistics`,
   activeTools: `${API_BASE_URL}/active-tools`,
+  recordDetails: (status) => `${API_BASE_URL}/tool-records/details?status=${encodeURIComponent(status)}`,
   syncToolInfo: `${API_BASE_URL}/syncToolInfo`,
   plans: (planType, date) => `${API_BASE_URL}/plans?planType=${encodeURIComponent(planType)}&date=${encodeURIComponent(date)}`,
   completeRecord: (id) => `${API_BASE_URL}/tool-records/${id}/complete`,
@@ -562,9 +593,16 @@ const isRecordCompleted = (row = {}) => {
 const isNoToolDetail = (row = {}) => row.status === 'NO_TOOL'
 
 const getEmptyRecordsMessage = () => {
-  if (planQueryType.value === 'TEMP') return '暂无临时领用记录'
+  if (planQueryType.value === 'TEMP') return '暂无工作任务记录'
+  if (planQueryType.value === 'TEMP_TASK') return '暂无临时出库记录'
   if (planQueryResult.value && !planQueryResult.value.plans.length) return '该范围暂无计划'
   return '暂无已绑定出库工具'
+}
+
+const getAssignmentDialogTitle = () => {
+  if (assignmentJobPlanId.value === 'TEMP_TASK') return '登记临时出库工具'
+  if (assignmentJobPlanId.value === 'TEMP_PLAN') return '登记工作任务工具'
+  return '绑定出库工具到计划'
 }
 
 const getToolStatusLabel = (row = {}) => {
@@ -763,6 +801,24 @@ const openToolsDialog = async (mode = 'all') => {
   await fetchTools()
 }
 
+const openRecordDetails = async (mode = 'all') => {
+  recordDetailMode.value = mode
+  recordDetailDialogVisible.value = true
+  recordDetailLoading.value = true
+  try {
+    const status = mode === 'unreturned' ? 'UNRETURNED' : 'ALL'
+    const response = await fetch(API_ENDPOINTS.recordDetails(status))
+    if (!response.ok) throw new Error('获取出入库详情失败')
+    const records = await response.json()
+    recordDetailRows.value = Array.isArray(records) ? records : []
+  } catch (err) {
+    console.error('[Dashboard] 获取出入库详情失败:', err)
+    ElMessage.error(err.message || '获取出入库详情失败')
+  } finally {
+    recordDetailLoading.value = false
+  }
+}
+
 const fetchTools = async (showError = true) => {
   toolsLoading.value = true
   try {
@@ -787,9 +843,9 @@ const fetchTools = async (showError = true) => {
 const fetchPlans = async () => {
   planQueryLoading.value = true
   try {
-    if (planQueryType.value === 'TEMP') {
+    if (planQueryType.value === 'TEMP' || planQueryType.value === 'TEMP_TASK') {
       planQueryResult.value = {
-        planType: 'TEMP',
+        planType: planQueryType.value,
         queryDate: planQueryDate.value,
         rangeStart: planQueryDate.value,
         rangeEnd: planQueryDate.value,
@@ -827,12 +883,16 @@ const assignSelectedTools = async () => {
       throw new Error(responseText || '工具绑定任务失败')
     }
     const result = responseText ? JSON.parse(responseText) : {}
+    const assignedRfids = new Set(selectedActiveTools.value)
+    activeRedisTools.value = activeRedisTools.value.filter(tool => !assignedRfids.has(tool.rfid))
     selectedActiveTools.value = []
     assignmentDialogVisible.value = false
     if (result.mqttSyncStatus === 'FAILED') {
       ElMessage.warning('工具已绑定任务，但 MQTT 同步失败，请稍后重试')
     } else if (result.mqttSyncStatus === 'NOT_REQUIRED') {
-      ElMessage.success('工具已归入临时计划，仅记录领用和归还')
+      ElMessage.success(assignmentJobPlanId.value === 'TEMP_TASK'
+        ? '工具已归入临时出库，仅维护本地状态'
+        : '工具已归入工作任务，按现有逻辑处理')
     } else {
       ElMessage.success('工具已绑定任务并发送出库请求')
     }
@@ -987,10 +1047,9 @@ const connectWebSocket = () => {
         const data = JSON.parse(event.data)
 
         if (data.type === 'update') {
-          if (data.toolRecords
-              && planQueryType.value === 'DAY'
-              && planQueryDate.value === formatDateInputValue(new Date())) {
-            applyRecords(data.toolRecords)
+          if (data.toolRecords) {
+            fetchTaskRecords(planQueryDate.value, getTaskQueryEndDate(), planQueryType.value, false)
+              .catch(() => {})
           }
           if (data.statistics) {
             statistics.value = normalizeStatistics(data.statistics)
@@ -1243,6 +1302,30 @@ onBeforeUnmount(() => {
 .plan-type-switch {
   display: flex;
   gap: 8px;
+}
+
+.plan-type-select-wrap {
+  display: grid;
+  gap: 6px;
+  color: #8fa0c4;
+  font-size: 13px;
+}
+
+.plan-type-select {
+  min-width: 136px;
+  height: 36px;
+  padding: 0 30px 0 10px;
+  color: #dcecff;
+  font: inherit;
+  background: rgba(5, 17, 40, 0.72);
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  border-radius: 8px;
+  color-scheme: dark;
+}
+
+.plan-type-select:focus-visible {
+  outline: 2px solid rgba(255, 236, 0, 0.9);
+  outline-offset: 2px;
 }
 
 .plan-type-option {
@@ -2325,6 +2408,7 @@ tbody tr:hover {
   }
 
   .plan-query-controls > .plan-type-switch,
+  .plan-query-controls > .plan-type-select-wrap,
   .plan-query-controls > .btn-query-plan {
     margin-top: 0;
   }
