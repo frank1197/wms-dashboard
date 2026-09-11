@@ -89,7 +89,7 @@
 
         <section class="tech-card task-table-card">
           <div class="card-title">
-            日/周计划与工具状态
+            计划与工具状态
             <span class="count-badge">{{ toolRecords.length }} 条</span>
             <span
               v-if="newRecordsCount > 0"
@@ -116,6 +116,10 @@
                 <input v-model="planQueryType" type="radio" value="WEEK" :disabled="planQueryLoading">
                 <span>周计划</span>
               </label>
+              <label class="plan-type-option" :class="{ active: planQueryType === 'TEMP' }">
+                <input v-model="planQueryType" type="radio" value="TEMP" :disabled="planQueryLoading">
+                <span>临时计划</span>
+              </label>
             </div>
             <button class="btn-query-plan" type="button" :disabled="planQueryLoading || !planQueryDate" @click="fetchPlans">
               {{ planQueryLoading ? '查询中...' : '实时查询' }}
@@ -124,7 +128,7 @@
 
           <div v-if="planQueryResult" class="plan-query-result">
             <div class="plan-query-summary">
-              {{ planQueryType === 'DAY' ? `查询日期：${planQueryResult.queryDate}` : `查询范围：${planQueryResult.rangeStart} 至 ${planQueryResult.rangeEnd}` }}
+              {{ planQueryType === 'WEEK' ? `查询范围：${planQueryResult.rangeStart} 至 ${planQueryResult.rangeEnd}` : `查询日期：${planQueryResult.queryDate}` }}
               <span class="count-badge">{{ planQueryResult.plans.length }} 个计划</span>
             </div>
           </div>
@@ -155,7 +159,7 @@
                 </tr>
                 <tr v-else-if="!toolRecords.length">
                     <td colspan="12">
-                    <div class="table-empty">{{ planQueryResult && !planQueryResult.plans.length ? '该范围暂无计划' : '暂无已绑定出库工具' }}</div>
+                <div class="table-empty">{{ getEmptyRecordsMessage() }}</div>
                   </td>
                 </tr>
                 <tr
@@ -324,7 +328,7 @@
 
     <el-dialog
       v-model="assignmentDialogVisible"
-      title="绑定出库工具到任务"
+      :title="assignmentJobPlanId === 'TEMP_PLAN' ? '登记临时领用工具' : '绑定出库工具到计划'"
       width="560px"
       class="tools-dialog assignment-dialog"
       :close-on-click-modal="false"
@@ -332,9 +336,9 @@
       <div class="assignment-body">
         <div class="assignment-summary">
           已选择 {{ selectedActiveTools.length }} 件工具
-          <span class="muted-text">绑定后将发送任务工具领用请求</span>
+          <span class="muted-text">日/周计划会同步任务领用，临时计划仅记录领用和归还</span>
         </div>
-        <label class="assignment-label" for="assignment-job-plan">所属日计划/周计划</label>
+        <label class="assignment-label" for="assignment-job-plan">所属计划</label>
         <select
           id="assignment-job-plan"
           v-model="assignmentJobPlanId"
@@ -342,12 +346,13 @@
           :disabled="planQueryLoading || assignmentLoading"
         >
           <option value="">请选择任务</option>
+          <option value="TEMP_PLAN">临时计划（仅记录领用和归还）</option>
           <option v-for="plan in availablePlans" :key="plan.jobPlanId" :value="plan.jobPlanId">
             {{ plan.jobName || plan.jobPlanId }}（{{ plan.startTime || '-' }}）
           </option>
         </select>
         <div v-if="planQueryLoading" class="assignment-hint">正在加载计划...</div>
-        <div v-else-if="!availablePlans.length" class="assignment-hint">暂无可绑定计划，请先查询日计划或周计划</div>
+        <div v-else-if="!availablePlans.length" class="assignment-hint">暂无可绑定计划，可选择临时计划</div>
       </div>
       <template #footer>
         <button class="assignment-cancel" type="button" @click="assignmentDialogVisible = false">取消</button>
@@ -477,6 +482,14 @@ const isNewRecord = (id) => newRecordIds.value.has(id)
 
 const getTextValue = (value) => String(value || '').trim()
 
+const parseRecognizedTime = (value) => {
+  if (value === null || value === undefined || value === '') return 0
+  const numeric = Number(value)
+  if (Number.isFinite(numeric)) return numeric
+  const parsed = Date.parse(String(value))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 const formatRfid = (value) => {
   const rfid = getTextValue(value)
   if (!rfid) return '-'
@@ -547,6 +560,12 @@ const isRecordCompleted = (row = {}) => {
 }
 
 const isNoToolDetail = (row = {}) => row.status === 'NO_TOOL'
+
+const getEmptyRecordsMessage = () => {
+  if (planQueryType.value === 'TEMP') return '暂无临时领用记录'
+  if (planQueryResult.value && !planQueryResult.value.plans.length) return '该范围暂无计划'
+  return '暂无已绑定出库工具'
+}
 
 const getToolStatusLabel = (row = {}) => {
   if (row.status === 'RETURNED' || row.returnTime) return '已归还'
@@ -639,7 +658,17 @@ const applyRecords = (newRecords) => {
 }
 
 const applyActiveTools = (newTools) => {
-  activeRedisTools.value = Array.isArray(newTools) ? newTools : []
+  const records = Array.isArray(newTools) ? [...newTools] : []
+  // 后端已按最近识别时间倒序返回，前端再次兜底，避免接口代理或历史数据打乱显示顺序。
+  records.sort((left, right) => {
+    const leftTime = parseRecognizedTime(left?.lastRecognizedAt)
+    const rightTime = parseRecognizedTime(right?.lastRecognizedAt)
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime
+    }
+    return String(left?.rfid || '').localeCompare(String(right?.rfid || ''))
+  })
+  activeRedisTools.value = records
 }
 
 const applyTools = (newTools) => {
@@ -758,12 +787,20 @@ const fetchTools = async (showError = true) => {
 const fetchPlans = async () => {
   planQueryLoading.value = true
   try {
-    const response = await fetch(API_ENDPOINTS.plans(planQueryType.value, planQueryDate.value))
-    const responseText = await response.text()
-    if (!response.ok) {
-      throw new Error(responseText || '计划查询失败')
+    if (planQueryType.value === 'TEMP') {
+      planQueryResult.value = {
+        planType: 'TEMP',
+        queryDate: planQueryDate.value,
+        rangeStart: planQueryDate.value,
+        rangeEnd: planQueryDate.value,
+        plans: []
+      }
+    } else {
+      const response = await fetch(API_ENDPOINTS.plans(planQueryType.value, planQueryDate.value))
+      const responseText = await response.text()
+      if (!response.ok) throw new Error(responseText || '计划查询失败')
+      planQueryResult.value = responseText ? JSON.parse(responseText) : null
     }
-    planQueryResult.value = responseText ? JSON.parse(responseText) : null
     await fetchTaskRecords(planQueryDate.value, getTaskQueryEndDate(), planQueryType.value)
   } catch (err) {
     console.error('[Dashboard] 实时计划查询失败:', err)
@@ -794,6 +831,8 @@ const assignSelectedTools = async () => {
     assignmentDialogVisible.value = false
     if (result.mqttSyncStatus === 'FAILED') {
       ElMessage.warning('工具已绑定任务，但 MQTT 同步失败，请稍后重试')
+    } else if (result.mqttSyncStatus === 'NOT_REQUIRED') {
+      ElMessage.success('工具已归入临时计划，仅记录领用和归还')
     } else {
       ElMessage.success('工具已绑定任务并发送出库请求')
     }
