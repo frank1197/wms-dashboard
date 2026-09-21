@@ -502,6 +502,7 @@ const API_ENDPOINTS = {
   recordDetails: (status) => `${API_BASE_URL}/tool-records/details?status=${encodeURIComponent(status)}`,
   syncToolInfo: `${API_BASE_URL}/syncToolInfo`,
   plans: (planType, date) => `${API_BASE_URL}/plans?planType=${encodeURIComponent(planType)}&date=${encodeURIComponent(date)}`,
+  bindablePlans: (date) => `${API_BASE_URL}/bindable-plans?date=${encodeURIComponent(date)}`,
   completeRecord: (id) => `${API_BASE_URL}/tool-records/${id}/complete`,
   assignTools: `${API_BASE_URL}/tool-records/assign`
 }
@@ -583,6 +584,7 @@ const toggleToolSelection = (tool = {}) => {
 const openAssignmentDialog = async () => {
   if (!selectedActiveTools.value.length) return
   assignmentJobPlanId.value = ''
+  bindablePlans.value = []
   assignmentDialogVisible.value = true
   try {
     await fetchBindablePlans()
@@ -882,26 +884,22 @@ const fetchPlans = async () => {
   }
 }
 
-/** 绑定弹窗独立查询全部可绑定任务，避免受主页面当前筛选类型影响。 */
+/** 绑定弹窗读取本地已同步任务，避免连续等待日、周、工作任务的实时 MQTT 查询。 */
 const fetchBindablePlans = async () => {
   bindingPlansLoading.value = true
   try {
-    const results = []
-    for (const type of ['DAY', 'WEEK', 'TEMP']) {
-      const response = await fetch(API_ENDPOINTS.plans(type, planQueryDate.value))
-      const responseText = await response.text()
-      if (!response.ok) throw new Error(responseText || '日周计划查询失败')
-      const result = responseText ? JSON.parse(responseText) : {}
-      if (Array.isArray(result.plans)) results.push(...result.plans)
-    }
+    const response = await fetch(API_ENDPOINTS.bindablePlans(planQueryDate.value))
+    const responseText = await response.text()
+    if (!response.ok) throw new Error(responseText || '可绑定任务查询失败')
+    const result = responseText ? JSON.parse(responseText) : {}
     const uniquePlans = new Map()
-    results.forEach(plan => {
+    ;(Array.isArray(result.plans) ? result.plans : []).forEach(plan => {
       if (plan?.jobPlanId) uniquePlans.set(plan.jobPlanId, plan)
     })
     bindablePlans.value = Array.from(uniquePlans.values())
   } catch (err) {
     bindablePlans.value = []
-    ElMessage.error(err.message || '日周计划查询失败')
+    ElMessage.error(err.message || '可绑定任务查询失败')
     throw err
   } finally {
     bindingPlansLoading.value = false
