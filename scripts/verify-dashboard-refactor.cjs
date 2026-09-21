@@ -11,6 +11,7 @@ const source = read(frontendRoot, 'src', 'components', 'WarehouseDashboard.vue')
 const statisticsVo = read(backendRoot, 'domain', 'StatisticsVo.java')
 const toolInfoVo = read(backendRoot, 'domain', 'ToolInfoVo.java')
 const toolRecordVo = read(backendRoot, 'domain', 'ToolInOutRecordVo.java')
+const activeToolVo = read(backendRoot, 'domain', 'ActiveRedisToolVo.java')
 const warehouseService = read(backendRoot, 'service', 'WarehouseService.java')
 const recordService = read(backendRoot, 'Conf', 'DB', 'service', 'impl', 'ToolInOutRecordServiceImpl.java')
 const usePlanService = read(backendRoot, 'Conf', 'DB', 'service', 'UsePlanService.java')
@@ -36,13 +37,15 @@ const expectations = [
   ['records table hides horizontal scrollbar', /\.table-container\s*\{[\s\S]*overflow-x:\s*hidden/.test(source)],
   ['records table uses fixed layout without minimum width', /table\s*\{[\s\S]*table-layout:\s*fixed/.test(source) && !/min-width:\s*960px/.test(source)],
   ['plan query and tool status share one table', /task-table-card/.test(source)
-    && /日\/周计划与工具状态/.test(source)
+    && /计划与工具状态/.test(source)
     && /工具状态/.test(source)],
   ['tool records query accepts plan type and date range', /toolRecords: \(date, endDate, planType\)/.test(source)
     && /endDate/.test(source)
     && /planType/.test(source)
     && /fetchTaskRecords/.test(source)],
   ['tool record VO exposes planStatus', /private\s+String\s+planStatus/.test(toolRecordVo)],
+  ['record detail displays task type instead of task name', /prop=["']taskType["']\s+label=["']任务类型["']/.test(source)
+    && /private\s+String\s+taskType/.test(toolRecordVo)],
   ['tool record VO exposes plan context and demand count', /private\s+String\s+jobPlanId/.test(toolRecordVo)
     && /private\s+String\s+jobContent/.test(toolRecordVo)
     && /private\s+Integer\s+requiredCount/.test(toolRecordVo)],
@@ -58,6 +61,9 @@ const expectations = [
   ['aggregate pie chart data by tool name', /buildToolChartData/.test(source)],
   ['use dashboard title', /智能无感出入库终端/.test(source)],
   ['keep active tools section', /当前识别工具/.test(source)]
+  , ['active tools disable records that cannot be bound', /:disabled=["']!tool\.bindable["']/.test(source)
+    && /private\s+boolean\s+bindable/.test(activeToolVo)
+    && /private\s+String\s+bindReason/.test(activeToolVo)]
   , ['active tools hide IN/OUT state labels', !/<span class="tool-state">/.test(source)],
   ['overdue dialog shows tool status title', /toolDialogMode\s*===\s*'overdue'\s*\?\s*'工具状态'/.test(source)],
   ['overdue dialog maps tool status codes to Chinese labels', /formatToolStatus\(row\.useRecordStatus\)/.test(source)

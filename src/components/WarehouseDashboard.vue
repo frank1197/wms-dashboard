@@ -242,13 +242,16 @@
               v-for="tool in activeRedisTools"
               :key="tool.rfid"
               class="active-tool-item"
-              :class="{ 'active-tool-item-selected': isToolSelected(tool) }"
+              :class="{
+                'active-tool-item-selected': isToolSelected(tool),
+                'active-tool-item-disabled': !tool.bindable
+              }"
             >
               <input
                 class="tool-select-checkbox"
                 type="checkbox"
                 :checked="isToolSelected(tool)"
-                :disabled="tool.state !== 'OUT'"
+                :disabled="!tool.bindable"
                 :aria-label="`选择工具 ${getDisplayToolName(tool)}`"
                 @change="toggleToolSelection(tool)"
               >
@@ -260,7 +263,7 @@
                   {{ getDisplayToolName(tool) }}
                 </div>
                 <div class="active-tool-rfid">{{ tool.rfid || '-' }}</div>
-                <div class="active-tool-state">{{ tool.state === 'OUT' ? '待绑定任务' : '库内' }}</div>
+                <div class="active-tool-state">{{ getActiveToolStatusLabel(tool) }}</div>
               </div>
             </div>
           </div>
@@ -331,31 +334,30 @@
       <div class="assignment-body">
         <div class="assignment-summary">
           已选择 {{ selectedActiveTools.length }} 件工具
-          <span class="muted-text">日/周计划按任务同步，工作任务和临时出库由人工确认归属</span>
+          <span class="muted-text">日/周计划和工作任务按任务同步，临时出库仅维护本地状态</span>
         </div>
         <label class="assignment-label" for="assignment-job-plan">所属计划</label>
         <select
           id="assignment-job-plan"
           v-model="assignmentJobPlanId"
           class="assignment-select"
-          :disabled="planQueryLoading || assignmentLoading"
+          :disabled="bindingPlansLoading || assignmentLoading"
         >
           <option value="">请选择任务</option>
-          <option value="TEMP_PLAN">工作任务（按现有逻辑处理）</option>
           <option value="TEMP_TASK">临时出库（仅本地维护，不发送 MQTT）</option>
-          <option v-for="plan in availablePlans" :key="plan.jobPlanId" :value="plan.jobPlanId">
+          <option v-for="plan in bindablePlans" :key="plan.jobPlanId" :value="plan.jobPlanId">
             {{ plan.jobName || plan.jobPlanId }}（{{ plan.startTime || '-' }}）
           </option>
         </select>
-        <div v-if="planQueryLoading" class="assignment-hint">正在加载计划...</div>
-        <div v-else-if="!availablePlans.length" class="assignment-hint">暂无日/周计划，可选择工作任务或临时出库</div>
+        <div v-if="bindingPlansLoading" class="assignment-hint">正在加载可绑定任务...</div>
+        <div v-else-if="!bindablePlans.length" class="assignment-hint">暂无可绑定任务，可选择临时出库</div>
       </div>
       <template #footer>
         <button class="assignment-cancel" type="button" @click="assignmentDialogVisible = false">取消</button>
         <button
           class="btn-query-plan assignment-submit"
           type="button"
-          :disabled="assignmentLoading || planQueryLoading || !assignmentJobPlanId || !selectedActiveTools.length"
+          :disabled="assignmentLoading || bindingPlansLoading || !assignmentJobPlanId || !selectedActiveTools.length"
           @click="assignSelectedTools"
         >
           {{ assignmentLoading ? '绑定中...' : '确认绑定' }}
@@ -377,7 +379,9 @@
         border
         empty-text="暂无出入库记录"
       >
-        <el-table-column prop="jobName" label="任务类型" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="taskType" label="任务类型" min-width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.taskType || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="toolName" label="工具名称" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.toolName || '-' }}</template>
         </el-table-column>
@@ -435,6 +439,8 @@ const planQueryDate = ref(formatDateInputValue(new Date()))
 const planQueryType = ref('DAY')
 const planQueryLoading = ref(false)
 const planQueryResult = ref(null)
+const bindablePlans = ref([])
+const bindingPlansLoading = ref(false)
 const selectedActiveTools = ref([])
 const assignmentDialogVisible = ref(false)
 const assignmentJobPlanId = ref('')
@@ -500,10 +506,6 @@ const API_ENDPOINTS = {
   assignTools: `${API_BASE_URL}/tool-records/assign`
 }
 
-const availablePlans = computed(() => planQueryResult.value?.plans || [])
-const hasCurrentPlanQuery = computed(() => planQueryResult.value?.planType === planQueryType.value
-  && planQueryResult.value?.queryDate === planQueryDate.value)
-
 const connectionStatus = ref({
   text: '连接中',
   type: 'info'
@@ -564,10 +566,15 @@ const getDisplayToolName = (item = {}) => {
   return isUnmatchedToolName(item) ? '未匹配工具' : getTextValue(item.toolName)
 }
 
+const getActiveToolStatusLabel = (tool = {}) => {
+  if (tool.bindable) return '待绑定任务'
+  return getTextValue(tool.bindReason) || (tool.state === 'IN' ? '库内' : '当前不可绑定')
+}
+
 const isToolSelected = (tool = {}) => selectedActiveTools.value.includes(tool.rfid)
 
 const toggleToolSelection = (tool = {}) => {
-  if (!tool.rfid || tool.state !== 'OUT') return
+  if (!tool.rfid || !tool.bindable) return
   selectedActiveTools.value = isToolSelected(tool)
     ? selectedActiveTools.value.filter(rfid => rfid !== tool.rfid)
     : [...selectedActiveTools.value, tool.rfid]
@@ -577,12 +584,10 @@ const openAssignmentDialog = async () => {
   if (!selectedActiveTools.value.length) return
   assignmentJobPlanId.value = ''
   assignmentDialogVisible.value = true
-  if (!hasCurrentPlanQuery.value) {
-    try {
-      await fetchPlans()
-    } catch (err) {
-      console.error('[Dashboard] 加载可绑定计划失败:', err)
-    }
+  try {
+    await fetchBindablePlans()
+  } catch (err) {
+    console.error('[Dashboard] 加载可绑定日周计划失败:', err)
   }
 }
 
@@ -601,7 +606,6 @@ const getEmptyRecordsMessage = () => {
 
 const getAssignmentDialogTitle = () => {
   if (assignmentJobPlanId.value === 'TEMP_TASK') return '登记临时出库工具'
-  if (assignmentJobPlanId.value === 'TEMP_PLAN') return '登记工作任务工具'
   return '绑定出库工具到计划'
 }
 
@@ -707,6 +711,18 @@ const applyActiveTools = (newTools) => {
     return String(left?.rfid || '').localeCompare(String(right?.rfid || ''))
   })
   activeRedisTools.value = records
+  const bindableRfids = new Set(records.filter(tool => tool?.bindable).map(tool => tool.rfid))
+  selectedActiveTools.value = selectedActiveTools.value.filter(rfid => bindableRfids.has(rfid))
+}
+
+const parseResponseError = (responseText, fallbackMessage) => {
+  if (!responseText) return fallbackMessage
+  try {
+    const responseBody = JSON.parse(responseText)
+    return getTextValue(responseBody?.message) || fallbackMessage
+  } catch (err) {
+    return responseText
+  }
 }
 
 const applyTools = (newTools) => {
@@ -843,7 +859,7 @@ const fetchTools = async (showError = true) => {
 const fetchPlans = async () => {
   planQueryLoading.value = true
   try {
-    if (planQueryType.value === 'TEMP' || planQueryType.value === 'TEMP_TASK') {
+    if (planQueryType.value === 'TEMP_TASK') {
       planQueryResult.value = {
         planType: planQueryType.value,
         queryDate: planQueryDate.value,
@@ -866,6 +882,32 @@ const fetchPlans = async () => {
   }
 }
 
+/** 绑定弹窗独立查询全部可绑定任务，避免受主页面当前筛选类型影响。 */
+const fetchBindablePlans = async () => {
+  bindingPlansLoading.value = true
+  try {
+    const results = []
+    for (const type of ['DAY', 'WEEK', 'TEMP']) {
+      const response = await fetch(API_ENDPOINTS.plans(type, planQueryDate.value))
+      const responseText = await response.text()
+      if (!response.ok) throw new Error(responseText || '日周计划查询失败')
+      const result = responseText ? JSON.parse(responseText) : {}
+      if (Array.isArray(result.plans)) results.push(...result.plans)
+    }
+    const uniquePlans = new Map()
+    results.forEach(plan => {
+      if (plan?.jobPlanId) uniquePlans.set(plan.jobPlanId, plan)
+    })
+    bindablePlans.value = Array.from(uniquePlans.values())
+  } catch (err) {
+    bindablePlans.value = []
+    ElMessage.error(err.message || '日周计划查询失败')
+    throw err
+  } finally {
+    bindingPlansLoading.value = false
+  }
+}
+
 const assignSelectedTools = async () => {
   if (!assignmentJobPlanId.value || !selectedActiveTools.value.length) return
   assignmentLoading.value = true
@@ -880,7 +922,7 @@ const assignSelectedTools = async () => {
     })
     const responseText = await response.text()
     if (!response.ok) {
-      throw new Error(responseText || '工具绑定任务失败')
+      throw new Error(parseResponseError(responseText, '工具绑定任务失败'))
     }
     const result = responseText ? JSON.parse(responseText) : {}
     const assignedRfids = new Set(selectedActiveTools.value)
@@ -2147,6 +2189,10 @@ tbody tr:hover {
   box-shadow: inset 0 0 10px rgba(255, 236, 0, 0.12);
 }
 
+.active-tool-item-disabled {
+  opacity: 0.66;
+}
+
 .tool-select-checkbox {
   width: 17px;
   height: 17px;
@@ -2174,6 +2220,8 @@ tbody tr:hover {
   margin-top: 4px;
   color: #ffec00;
   font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .assignment-body {
