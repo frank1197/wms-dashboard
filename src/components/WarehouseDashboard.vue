@@ -265,6 +265,16 @@
                 <div class="active-tool-rfid">{{ tool.rfid || '-' }}</div>
                 <div class="active-tool-state">{{ getActiveToolStatusLabel(tool) }}</div>
               </div>
+              <button
+                class="btn-delete-active-tool"
+                type="button"
+                :disabled="isDeletingActiveTool(tool.rfid)"
+                :title="`删除识别工具 ${getDisplayToolName(tool)}`"
+                @click="deleteActiveTool(tool)"
+              >
+                <el-icon><Delete /></el-icon>
+                <span>{{ isDeletingActiveTool(tool.rfid) ? '删除中' : '删除' }}</span>
+              </button>
             </div>
           </div>
         </section>
@@ -368,40 +378,84 @@
     <el-dialog
       v-model="recordDetailDialogVisible"
       :title="recordDetailMode === 'unreturned' ? '未归还详情' : '出入库记录详情'"
-      width="980px"
+      width="1180px"
       class="tools-dialog record-detail-dialog"
     >
       <el-table
         v-loading="recordDetailLoading"
         :data="recordDetailRows"
+        class="record-detail-table"
         height="520"
         stripe
         border
         empty-text="暂无出入库记录"
       >
-        <el-table-column prop="taskType" label="任务类型" min-width="130" show-overflow-tooltip>
+        <el-table-column prop="taskType" label="任务类型" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.taskType || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="toolName" label="工具名称" min-width="160" show-overflow-tooltip>
+        <el-table-column prop="toolName" label="工具名称" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.toolName || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="rfid" label="工具 RFID" min-width="190" show-overflow-tooltip>
+        <el-table-column prop="rfid" label="工具 RFID" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ row.rfid || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="usePersonName" label="领用人" min-width="110" />
-        <el-table-column prop="useTime" label="领用时间" min-width="165" />
-        <el-table-column prop="returnPersonName" label="归还人" min-width="110" />
-        <el-table-column prop="returnTime" label="归还时间" min-width="165">
+        <el-table-column prop="usePersonName" label="领用人" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="useTime" label="领用时间" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="returnPersonName" label="归还人" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="returnTime" label="归还时间" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">{{ row.returnTime || '未归还' }}</template>
         </el-table-column>
+        <el-table-column label="操作" width="68" fixed="right" align="center">
+          <template #default="{ row }">
+            <button
+              class="record-delete-button"
+              type="button"
+              :disabled="isDeletingRecord(row.id)"
+              :title="isDeletingRecord(row.id) ? '正在删除' : '删除记录'"
+              :aria-label="`删除记录 ${row.rfid || row.id}`"
+              @click="deleteToolRecord(row)"
+            >
+              <el-icon><Delete /></el-icon>
+            </button>
+          </template>
+        </el-table-column>
       </el-table>
+
+      <div v-loading="recordDetailLoading" class="record-detail-mobile-list">
+        <div v-if="!recordDetailLoading && !recordDetailRows.length" class="record-detail-mobile-empty">
+          暂无出入库记录
+        </div>
+        <article v-for="row in recordDetailRows" :key="row.id" class="record-detail-mobile-item">
+          <div class="record-detail-mobile-heading">
+            <strong>{{ row.toolName || '未匹配工具' }}</strong>
+            <span>{{ row.taskType || '-' }}</span>
+          </div>
+          <button
+            class="record-delete-button"
+            type="button"
+            :disabled="isDeletingRecord(row.id)"
+            :title="isDeletingRecord(row.id) ? '正在删除' : '删除记录'"
+            :aria-label="`删除记录 ${row.rfid || row.id}`"
+            @click="deleteToolRecord(row)"
+          >
+            <el-icon><Delete /></el-icon>
+          </button>
+          <dl class="record-detail-mobile-fields">
+            <div><dt>工具 RFID</dt><dd>{{ row.rfid || '-' }}</dd></div>
+            <div><dt>领用人</dt><dd>{{ row.usePersonName || '-' }}</dd></div>
+            <div><dt>领用时间</dt><dd>{{ row.useTime || '-' }}</dd></div>
+            <div><dt>归还人</dt><dd>{{ row.returnPersonName || '-' }}</dd></div>
+            <div><dt>归还时间</dt><dd>{{ row.returnTime || '未归还' }}</dd></div>
+          </dl>
+        </article>
+      </div>
     </el-dialog>
   </main>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 
 const toolRecords = ref([])
@@ -423,6 +477,8 @@ const clockTime = ref('')
 const newRecordIds = ref(new Set())
 const newRecordsCount = ref(0)
 const completingRecordIds = ref(new Set())
+const deletingActiveToolRfids = ref(new Set())
+const deletingRecordIds = ref(new Set())
 const toolsDialogVisible = ref(false)
 const toolDialogMode = ref('all')
 const recordDetailDialogVisible = ref(false)
@@ -499,7 +555,9 @@ const API_ENDPOINTS = {
   tools: `${API_BASE_URL}/tools`,
   statistics: `${API_BASE_URL}/statistics`,
   activeTools: `${API_BASE_URL}/active-tools`,
+  deleteActiveTool: (rfid) => `${API_BASE_URL}/active-tools?rfid=${encodeURIComponent(rfid)}`,
   recordDetails: (status) => `${API_BASE_URL}/tool-records/details?status=${encodeURIComponent(status)}`,
+  deleteRecord: (id) => `${API_BASE_URL}/tool-records/${encodeURIComponent(id)}`,
   syncToolInfo: `${API_BASE_URL}/syncToolInfo`,
   plans: (planType, date) => `${API_BASE_URL}/plans?planType=${encodeURIComponent(planType)}&date=${encodeURIComponent(date)}`,
   bindablePlans: (date) => `${API_BASE_URL}/bindable-plans?date=${encodeURIComponent(date)}`,
@@ -581,6 +639,56 @@ const toggleToolSelection = (tool = {}) => {
     : [...selectedActiveTools.value, tool.rfid]
 }
 
+const isDeletingActiveTool = (rfid) => deletingActiveToolRfids.value.has(rfid)
+
+const setActiveToolDeleting = (rfid, deleting) => {
+  const nextRfids = new Set(deletingActiveToolRfids.value)
+  if (deleting) {
+    nextRfids.add(rfid)
+  } else {
+    nextRfids.delete(rfid)
+  }
+  deletingActiveToolRfids.value = nextRfids
+}
+
+const deleteActiveTool = async (tool = {}) => {
+  const rfid = getTextValue(tool.rfid)
+  if (!rfid || isDeletingActiveTool(rfid)) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除“${getDisplayToolName(tool)}”的当前识别状态吗？工具台账和出入库记录不会被删除。`,
+      '删除识别工具',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'delete-confirm-button'
+      }
+    )
+  } catch (action) {
+    return
+  }
+
+  setActiveToolDeleting(rfid, true)
+  try {
+    const response = await fetch(API_ENDPOINTS.deleteActiveTool(rfid), { method: 'DELETE' })
+    const responseText = await response.text()
+    if (!response.ok) {
+      throw new Error(parseResponseError(responseText, '删除识别工具失败'))
+    }
+
+    activeRedisTools.value = activeRedisTools.value.filter(item => item.rfid !== rfid)
+    selectedActiveTools.value = selectedActiveTools.value.filter(selectedRfid => selectedRfid !== rfid)
+    ElMessage.success('识别工具已删除')
+  } catch (err) {
+    console.error('[Dashboard] 删除当前识别工具失败:', err)
+    ElMessage.error(err.message || '删除识别工具失败')
+  } finally {
+    setActiveToolDeleting(rfid, false)
+  }
+}
+
 const openAssignmentDialog = async () => {
   if (!selectedActiveTools.value.length) return
   assignmentJobPlanId.value = ''
@@ -633,6 +741,18 @@ const setRecordCompleting = (id, completing) => {
     nextIds.delete(id)
   }
   completingRecordIds.value = nextIds
+}
+
+const isDeletingRecord = (id) => deletingRecordIds.value.has(id)
+
+const setRecordDeleting = (id, deleting) => {
+  const nextIds = new Set(deletingRecordIds.value)
+  if (deleting) {
+    nextIds.add(id)
+  } else {
+    nextIds.delete(id)
+  }
+  deletingRecordIds.value = nextIds
 }
 
 const getCurrentDateTime = () => {
@@ -834,6 +954,44 @@ const openRecordDetails = async (mode = 'all') => {
     ElMessage.error(err.message || '获取出入库详情失败')
   } finally {
     recordDetailLoading.value = false
+  }
+}
+
+const deleteToolRecord = async (row = {}) => {
+  if (!row.id || isDeletingRecord(row.id)) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除工具“${row.toolName || row.rfid || row.id}”的这条出入库记录吗？工具台账和当前识别状态不会被删除。`,
+      '删除出入库记录',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'delete-confirm-button'
+      }
+    )
+  } catch (action) {
+    return
+  }
+
+  setRecordDeleting(row.id, true)
+  try {
+    const response = await fetch(API_ENDPOINTS.deleteRecord(row.id), { method: 'DELETE' })
+    const responseText = await response.text()
+    if (!response.ok) {
+      throw new Error(parseResponseError(responseText, '删除出入库记录失败'))
+    }
+
+    recordDetailRows.value = recordDetailRows.value.filter(record => record.id !== row.id)
+    toolRecords.value = toolRecords.value.filter(record => record.id !== row.id)
+    ElMessage.success('出入库记录已删除')
+    await fetchData()
+  } catch (err) {
+    console.error('[Dashboard] 删除出入库记录失败:', err)
+    ElMessage.error(err.message || '删除出入库记录失败')
+  } finally {
+    setRecordDeleting(row.id, false)
   }
 }
 
@@ -1091,11 +1249,15 @@ const connectWebSocket = () => {
             fetchTaskRecords(planQueryDate.value, getTaskQueryEndDate(), planQueryType.value, false)
               .catch(() => {})
           }
+          if (Array.isArray(data.activeTools)) {
+            applyActiveTools(data.activeTools)
+          }
           if (data.statistics) {
             statistics.value = normalizeStatistics(data.statistics)
           }
           console.info('[Dashboard] WebSocket收到Dashboard更新', {
             recordCount: Array.isArray(data.toolRecords) ? data.toolRecords.length : toolRecords.value.length,
+            activeToolCount: activeRedisTools.value.length,
             statistics: statistics.value
           })
         }
@@ -2173,13 +2335,41 @@ tbody tr:hover {
 
 .active-tool-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 12px;
   background: linear-gradient(135deg, rgba(16, 49, 107, 0.52), rgba(9, 29, 66, 0.32));
   border: 1px solid rgba(0, 243, 255, 0.14);
   border-radius: 4px;
+}
+
+.btn-delete-active-tool {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  min-width: 62px;
+  min-height: 30px;
+  padding: 5px 9px;
+  color: #ff728b;
+  font-size: 12px;
+  cursor: pointer;
+  background: rgba(255, 72, 104, 0.08);
+  border: 1px solid rgba(255, 92, 121, 0.72);
+  border-radius: 4px;
+}
+
+.btn-delete-active-tool:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 72, 104, 0.55);
+  box-shadow: 0 0 10px rgba(255, 72, 104, 0.3);
+}
+
+.btn-delete-active-tool:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .active-tool-item-selected {
@@ -2336,6 +2526,114 @@ tbody tr:hover {
 
 :deep(.tools-dialog .el-table .cell) {
   color: inherit;
+}
+
+.record-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #ff728b;
+  font-size: 16px;
+  cursor: pointer;
+  background: rgba(255, 72, 104, 0.08);
+  border: 1px solid rgba(255, 92, 121, 0.72);
+  border-radius: 4px;
+}
+
+.record-delete-button:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 72, 104, 0.55);
+  box-shadow: 0 0 10px rgba(255, 72, 104, 0.3);
+}
+
+.record-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.record-detail-mobile-list {
+  display: none;
+  min-height: 240px;
+}
+
+.record-detail-mobile-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid rgba(0, 243, 255, 0.18);
+}
+
+.record-detail-mobile-heading {
+  min-width: 0;
+}
+
+.record-detail-mobile-heading strong,
+.record-detail-mobile-heading span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-detail-mobile-heading strong {
+  color: #e8fbff;
+  font-size: 14px;
+}
+
+.record-detail-mobile-heading span {
+  margin-top: 3px;
+  color: #00f3ff;
+  font-size: 12px;
+}
+
+.record-detail-mobile-fields {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.record-detail-mobile-fields div {
+  min-width: 0;
+}
+
+.record-detail-mobile-fields dt {
+  color: #7f91b5;
+  font-size: 11px;
+}
+
+.record-detail-mobile-fields dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: #d1ddf7;
+  font-size: 12px;
+}
+
+.record-detail-mobile-empty {
+  padding: 48px 16px;
+  color: #7f91b5;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .record-detail-table {
+    display: none;
+  }
+
+  .record-detail-mobile-list {
+    display: block;
+    max-height: 65vh;
+    overflow-y: auto;
+  }
+
+  .record-detail-mobile-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 1280px) {
@@ -2499,7 +2797,7 @@ tbody tr:hover {
   }
 
   .active-tool-item {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .dashboard-footer {
